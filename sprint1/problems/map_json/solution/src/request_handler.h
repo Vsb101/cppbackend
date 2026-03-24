@@ -8,105 +8,69 @@ namespace http_handler {
 namespace beast = boost::beast;
 namespace http = beast::http;
 
-// Функции для преобразования модели в JSON
+// Сериализует карту в JSON-строку (полное описание)
 std::string MapToJson(const model::Map& map);
+// Сериализует список карт в JSON-строку (только id и name)
 std::string MapsListToJson(const model::Game& game);
 
+// Обработчик HTTP-запросов.
+// Делегирует запросы соответствующим методам Handle* в зависимости от URI.
 class RequestHandler {
 public:
     explicit RequestHandler(model::Game& game)
         : game_{game} {
     }
 
+    // Примечание
+    // По сути, RequestHandler — это владелец ссылки на Game,
+    // и он должен быть единичным (singleton).
+    // Удаляя копирование, это подчёркиваем.
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
 
+    // Точка входа для обработки запроса.
+    // Выполняет роутинг: определяет какой метод Handle* вызвать по URI.
+    // Поддерживает GET и HEAD методы.
     template <typename Body, typename Allocator, typename Send>
     void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
         std::string target(req.target());
-        
-        // Убираем начальный слеш если есть
         if (!target.empty() && target[0] == '/') {
             target = target.substr(1);
         }
 
-        http::response<http::string_body> response;
-
-        // Проверяем метод запроса
         if (req.method() != http::verb::get && req.method() != http::verb::head) {
-            response.result(http::status::method_not_allowed);
-            response.set(http::field::content_type, "application/json");
-            response.set(http::field::allow, "GET, HEAD");
-            response.body() = R"({"code": "badRequest", "message": "Bad request"})";
-            response.content_length(response.body().size());
-            response.keep_alive(req.keep_alive());
-            send(std::move(response));
+            send(MakeMethodNotAllowedResponse(req));
             return;
         }
 
-        // Обработка запросов к /api/v1/maps
         if (target.rfind("api/v1/maps", 0) == 0) {
-            // Убираем префикс api/v1/maps
             std::string path = target.substr(11);
-            
             if (path.empty()) {
-                // GET /api/v1/maps - возвращаем список карт
-                std::string body = MapsListToJson(game_);
-                response.result(http::status::ok);
-                response.set(http::field::content_type, "application/json");
-                response.body() = std::move(body);
-                response.content_length(response.body().size());
-                response.keep_alive(req.keep_alive());
+                send(HandleMapsList(req));
             } else if (path[0] == '/') {
-                // GET /api/v1/maps/{id}
-                std::string map_id = path.substr(1);
-                
-                const model::Map* map = game_.FindMap(model::Map::Id(map_id));
-                if (map == nullptr) {
-                    // Карта не найдена
-                    response.result(http::status::not_found);
-                    response.set(http::field::content_type, "application/json");
-                    response.body() = R"({"code": "mapNotFound", "message": "Map not found"})";
-                    response.content_length(response.body().size());
-                    response.keep_alive(req.keep_alive());
-                } else {
-                    // Возвращаем карту
-                    std::string body = MapToJson(*map);
-                    response.result(http::status::ok);
-                    response.set(http::field::content_type, "application/json");
-                    response.body() = std::move(body);
-                    response.content_length(response.body().size());
-                    response.keep_alive(req.keep_alive());
-                }
+                send(HandleMapById(req, path.substr(1)));
             } else {
-                // Неправильный формат URI после /api/v1/maps
-                response.result(http::status::bad_request);
-                response.set(http::field::content_type, "application/json");
-                response.body() = R"({"code": "badRequest", "message": "Bad request"})";
-                response.content_length(response.body().size());
-                response.keep_alive(req.keep_alive());
+                send(MakeBadRequestResponse(req));
             }
         } else if (target.rfind("api/", 0) == 0) {
-            // Запрос к /api/, но не подходит ни под один формат
-            response.result(http::status::bad_request);
-            response.set(http::field::content_type, "application/json");
-            response.body() = R"({"code": "badRequest", "message": "Bad request"})";
-            response.content_length(response.body().size());
-            response.keep_alive(req.keep_alive());
+            send(MakeBadRequestResponse(req));
         } else {
-            // Для остальных запросов возвращаем 404
-            response.result(http::status::not_found);
-            response.set(http::field::content_type, "text/html");
-            response.body() = "Not found";
-            response.content_length(response.body().size());
-            response.keep_alive(req.keep_alive());
+            send(MakeNotFoundResponse(req));
         }
-
-        send(std::move(response));
     }
 
 private:
     model::Game& game_;
+
+    // Фабрики ответов
+    http::response<http::string_body> MakeOkResponse(const std::string& body, const http::request<http::string_body>& req);
+    http::response<http::string_body> MakeBadRequestResponse(const http::request<http::string_body>& req);
+    http::response<http::string_body> MakeNotFoundResponse(const http::request<http::string_body>& req);
+    http::response<http::string_body> MakeMethodNotAllowedResponse(const http::request<http::string_body>& req);
+
+    // Обработчики конкретных эндпоинтов
+    http::response<http::string_body> HandleMapsList(const http::request<http::string_body>& req);
+    http::response<http::string_body> HandleMapById(const http::request<http::string_body>& req, const std::string& map_id);
 };
 
 }  // namespace http_handler

@@ -36,14 +36,14 @@ int main(int argc, const char* argv[]) {
         return EXIT_FAILURE;
     }
     try {
-        // 1. Загружаем карту из файла и построить модель игры
+        //Загружаем карту из файла и построить модель игры
         model::Game game = json_loader::LoadGame(argv[1]);
 
-        // 2. Инициализируем io_context
+        // Инициализируем io_context
         const unsigned num_threads = std::thread::hardware_concurrency();
         net::io_context ioc(num_threads);
 
-        // 3. Добавляем асинхронный обработчик сигналов SIGINT и SIGTERM
+        // Добавляем асинхронный обработчик сигналов SIGINT и SIGTERM
         net::signal_set signals(ioc, SIGINT, SIGTERM);
         signals.async_wait([&ioc](beast::error_code ec, int signal_number) {
             if (!ec) {
@@ -52,10 +52,10 @@ int main(int argc, const char* argv[]) {
             }
         });
 
-        // 4. Создаём обработчик HTTP-запросов и связываем его с моделью игры
+        // Создаём обработчик HTTP-запросов и связываем его с моделью игры
         http_handler::RequestHandler handler{game};
 
-        // 5. Запустить обработчик HTTP-запросов, делегируя их обработчику запросов
+        // Запустить обработчик HTTP-запросов, делегируя их обработчику запросов
         const auto address = net::ip::make_address("0.0.0.0");
         constexpr net::ip::port_type port = 8080;
         http_server::ServeHttp(ioc, {address, port}, [&handler](auto&& req, auto&& send) {
@@ -63,9 +63,10 @@ int main(int argc, const char* argv[]) {
         });
 
         // Эта надпись сообщает тестам о том, что сервер запущен и готов обрабатывать запросы
+        // Нужно по условию
         std::cout << "Server has started..."sv << std::endl;
 
-        // 6. Запускаем обработку асинхронных операций
+        // Запускаем обработку асинхронных операций
         RunWorkers(std::max(1u, num_threads), [&ioc] {
             ioc.run();
         });
