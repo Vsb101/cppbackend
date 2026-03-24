@@ -1,0 +1,149 @@
+#pragma once
+#include "sdk.h"
+// boost.beast будет использовать std::string_view вместо boost::string_view
+#define BOOST_BEAST_USE_STD_STRING_VIEW
+
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/strand.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
+#include <iostream>
+
+namespace http_server {
+
+namespace net = boost::asio;
+using tcp = net::ip::tcp;
+namespace beast = boost::beast;
+namespace http = beast::http;
+
+// Базовый класс для управления жизненным циклом сессии
+class SessionBase {
+protected:
+    using HttpRequest = http::request<http::string_body>;
+
+    ~SessionBase() = default;
+
+    // Запрещаем копирование и присваивание
+    SessionBase(const SessionBase&) = delete;
+    SessionBase& operator=(const SessionBase&) = delete;
+
+    explicit SessionBase(tcp::socket&& socket)
+        : stream_(std::move(socket)) {}
+
+public:
+    void Run();
+
+    // Метод для асинхронной записи ответа
+    template <typename Body, typename Fields>
+    void Write(http::response<Body, Fields>&& response);
+
+    // Метод для асинхронного чтения запроса
+    void Read();
+
+    // Обработка прочитанного запроса (реализуется в наследнике)
+    virtual void HandleRequest(HttpRequest&& request) = 0;
+
+private:
+    // Вызывается после завершения чтения запроса
+    void OnRead(beast::error_code ec, std::size_t bytes_read);
+
+    // Вызывается после отправки ответа
+    void OnWrite(bool close, beast::error_code ec, std::size_t bytes_written);
+
+    // Закрывает соединение
+    void Close();
+
+    // Получить shared_ptr на текущий объект
+    virtual std::shared_ptr<SessionBase> GetSharedThis() = 0;
+
+    beast::tcp_stream stream_;
+    beast::flat_buffer buffer_;
+    HttpRequest request_;
+
+    // Вспомогательная функция для вывода ошибок
+    static void ReportError(beast::error_code ec, const char* what) {
+        std::cerr << what << ": " << ec.message() << std::endl;
+    }
+};
+
+// Класс сессии, обрабатывающей запрос
+template <typename RequestHandler>
+class Session : public SessionBase, public std::enable_shared_from_this<Session<RequestHandler>> {
+    RequestHandler request_handler_;
+
+public:
+    template <typename Handler>
+    Session(tcp::socket&& socket, Handler&& handler)
+        : SessionBase(std::move(socket))
+        , request_handler_(std::forward<Handler>(handler)) {}
+
+private:
+    void HandleRequest(HttpRequest&& request) override {
+        // Передаем запрос обработчику и отправляем ответ через лямбду
+        request_handler_(std::move(request), [self = this->shared_from_this()](auto&& response) {
+            self->Write(std::move(response));
+        });
+    }
+
+    std::shared_ptr<SessionBase> GetSharedThis() override {
+        return this->shared_from_this();
+    }
+};
+
+// Класс, слушающий входящие соединения
+template <typename RequestHandler>
+class Listener : public std::enable_shared_from_this<Listener<RequestHandler>> {
+    net::io_context& ioc_;
+    tcp::acceptor acceptor_;
+    RequestHandler request_handler_;
+
+public:
+    template <typename Handler>
+    Listener(net::io_context& ioc, const tcp::endpoint& endpoint, Handler&& handler)
+        : ioc_(ioc)
+        , acceptor_(net::make_strand(ioc))
+        , request_handler_(std::forward<Handler>(handler))
+    {
+        acceptor_.open(endpoint.protocol());
+        acceptor_.set_option(net::socket_base::reuse_address(true));
+        acceptor_.bind(endpoint);
+        acceptor_.listen(net::socket_base::max_listen_connections);
+    }
+
+    // Запускает прием соединений
+    void Run() {
+        DoAccept();
+    }
+
+private:
+    void DoAccept() {
+        acceptor_.async_accept(
+            net::make_strand(ioc_),
+            beast::bind_front_handler(&Listener::OnAccept, this->shared_from_this()));
+    }
+
+    void OnAccept(beast::error_code ec, tcp::socket socket) {
+        if (ec) {
+            ReportError(ec, "accept");
+        } else {
+            // Запускаем сессию для нового соединения
+            std::make_shared<Session<RequestHandler>>(std::move(socket), request_handler_)->Run();
+            // Принимаем следующее соединение
+            DoAccept();
+        }
+    }
+
+    // Вспомогательная функция для вывода ошибок
+    static void ReportError(beast::error_code ec, const char* what) {
+        std::cerr << what << ": " << ec.message() << std::endl;
+    }
+};
+
+// Основная функция для запуска сервера
+template <typename RequestHandler>
+void ServeHttp(net::io_context& ioc, const tcp::endpoint& endpoint, RequestHandler&& handler) {
+    using MyListener = Listener<std::decay_t<RequestHandler>>;
+    std::make_shared<MyListener>(ioc, endpoint, std::forward<RequestHandler>(handler))->Run();
+}
+
+}  // namespace http_server

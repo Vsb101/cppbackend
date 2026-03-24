@@ -1,0 +1,633 @@
+Асинхронный http-сервер. Часть 1
+Вы рассмотрели основные приёмы, полезные для написания асинхронного кода:
+
+    управление временем жизни объекта с помощью std::shared_ptr и std::enable_shared_from_this;
+    распределение работы между несколькими потоками;
+    обнаружение и устранение состояния гонки;
+    последовательный вызов обработчиков с помощью boost::asio::strand.
+
+В этом уроке вы примените полученные знания, чтобы сделать обработку запросов в HTTP-сервере асинхронной. За счёт асинхронности сервер будет более эффективно использовать ресурсы компьютера.
+Корректное завершение работы сервера
+Синхронный HTTP-сервер в бесконечном цикле ожидал подключение очередного клиента, создавал поток, в котором обрабатывал запросы. Чтобы завершить его работу, нужно закрыть окно терминала либо нажать комбинацию клавиш Ctrl+C. Никакой возможности завершить работу нормально у программы в таком случае нет. Пока это не приводит к дурным последствиям. Но в более сложной ситуации программа не смогла бы, например, удалить временные файлы с диска.
+Чтобы приложение могло корректно завершить работу, оно должно обрабатывать сигналы операционной системы. Сигнал — это стандартизованное асинхронное сообщение, которое отправляется программе для обработки специальных ситуаций: запрос на завершение работы, обработка ошибки вроде деления на 0 или ошибки работы с памятью. При отправке сигнала операционная система прерывает нормальный ход работы программы и, если в программе для сигнала был зарегистрирован обработчик, вызывает его. В противном случае будет вызван обработчик по умолчанию, который в зависимости от типа сигнала либо завершит работу программы, либо проигнорирует сигнал.
+В POSIX-совместимых системах для работы с сигналами служат функции, объявленные в заголовочном файле <signal.h>, например sigaction и kill. Они достаточно низкоуровневые и требуют внимательной работы с указателями. В Boost.Asio для поддержки сигналов служит класс boost::asio::signal_set. Его метод async_wait позволяет приложению асинхронно обработать сигналы, адресованные приложению. Как и многие другие классы Boost.Asio, он принимает ссылку на io_context в конструкторе. Для использования класса signal_set нужно подключить заголовочный файл <boost/asio/signal_set.hpp>.
+С каждым сигналом связано некоторое целое число — номер сигнала, которому для удобства использования соответствует константа вроде SIGINT, SIGTERM, SIGKILL. Эти константы объявлены в <signal.h>. В вашем веб-сервере вам понадобится обработать два сигнала:
+
+    Сигнал SIGINT (interrupt signal — сигнал прерывания). Обработав этот сигнал, сервер сможет корректно завершить работу при нажатии комбинации клавиш Ctrl+C.
+    Сигнал SIGTERM (terminate signal — сигнал завершения). Посылается утилитой командной строки kill в Linux и других POSIX-системах. Обработав этот сигнал, сервер сможет корректно завершить работу, если вы решите использовать команду kill, чтобы завершить его.
+
+С помощью signal_set::async_wait инициируйте асинхронное ожидание этих сигналов. Теперь при нажатии Ctrl+C или получении SIGTERM программа не завершит работу, а вызовет обработчик сигнала. В обработчике вызовите метод io_context::stop, чтобы остановить цикл обработки асинхронных операций, запущенный методом io_context::run. 
+
+#include <boost/asio/signal_set.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <iostream>
+#include <thread>
+#include <vector>
+
+namespace net = boost::asio;
+using namespace std::literals;
+namespace sys = boost::system;
+
+template <typename Fn>
+void RunWorkers(unsigned n, const Fn& fn) {
+    ...
+}
+
+int main() {
+    const unsigned num_threads = std::thread::hardware_concurrency();
+
+    net::io_context ioc(num_threads);
+
+    // Подписываемся на сигналы и при их получении завершаем работу сервера
+    net::signal_set signals(ioc, SIGINT, SIGTERM);
+    signals.async_wait([&ioc](const sys::error_code& ec, [[maybe_unused]] int signal_number) {
+        if (!ec) {
+            std::cout << "Signal "sv << signal_number << " received"sv << std::endl;
+            ioc.stop();
+        }
+    });
+
+    net::steady_timer t{ioc, 30s};
+    t.async_wait([](sys::error_code ec) {
+        std::cout << "Timer expired"s << std::endl;
+    });
+
+    RunWorkers(num_threads, [&ioc] {
+        ioc.run();
+    });
+    std::cout << "Shutting down"sv << std::endl;
+} 
+
+Запустите программу и нажмите Ctrl+C, пока не истекло 30-секундное ожидание таймера. Программа выведет номер полученного сигнала, а затем после вызова метода stop завершит метод run, не дожидаясь, пока истечёт таймер. Программа корректно завершит свою работу — об этом свидетельствует надпись “Shutting down”. Без использования метода signal_set::async_wait нажатие Ctrl+C сразу завершило бы работу программы, не дав ей возможности выполнить завершающие операции.
+Самостоятельно изучите документацию по сигналам в Linux. Какие из перечисленных ниже сигналов не могут быть пойманы, заблокированы или прерваны приложением?
+Неправильный ответ
+SIGINT
+Неправильный ответ
+SIGTERM
+Тоже правильный ответ
+SIGKILL
+Тоже правильный ответ
+SIGSTOP
+Неправильный ответ
+SIGABRT
+Неправильный ответ
+SIGFPE
+Как вам задача?
+Сигналы SIGKILL и SIGSTOP  не могут быть пойманы приложением.
+Обзор архитектуры асинхронного HTTP-сервера
+Архитектура асинхронного сервера будет похожа на архитектуру программы для приготовления гамбургеров. Классы сервера будут располагаться в пространстве имён http_server. Это изолирует код, отвечающий за работу с HTTP, от других компонентов программы.
+Шаблонный класс Listener (Слушатель) асинхронно принимает входящие TCP-соединения. Для этого он использует содержащийся в нём акцептор. Приняв соединение, Listener создаёт новый объект класса Session (Сессия) и поручает ему обработку HTTP-сессии. В своём поведении Listener похож на класс Restaurant с той лишь разницей, что Restaurant требовал явно вызвать метод MakeHamburger, а Listener использует акцептор, чтобы принять заказ.
+Параметр RequestHandler задаёт тип функции-обработчика запросов. Это позволяет, не изменяя класс Listener, задавать способ обработки запросов. Так код сервера будет соответствовать Принципу открытости-закрытости (Open-Close Principle). Это один из основных принципов объектно-ориентированного программирования — код должен быть открыт для расширения, но закрыт для внесения изменений.
+Шаблонный класс Session реализует шаги цикла обработки HTTP-сессии:
+
+    чтение запроса,
+    обработка запроса,
+    отправка ответа.
+
+Он хранит все данные, нужные для обслуживания сессии: TCP-поток для обмена данными с клиентом, буфер для хранения данных, прочитанный запрос клиента и обработчик запроса.
+Чтобы уменьшить объём машинного кода, получающегося при компиляции шаблонов, и сократить объём работы для компилятора в C++, часто применяется следующий приём. Поля и методы класса, которые не зависят от шаблонного параметра, выносятся в базовый класс. Поэтому класс Session унаследован от нешаблонного класса SessionBase. В базовый класс вынесены поток, буфер и объект текущего запроса, а в классе-наследнике хранится лишь RequestHandler.
+Асинхронный приём соединений
+Синхронный сервер принимал соединение, используя метод tcp::acceptor::accept. Этот метод не возвращает управление, пока клиент не подключится. Асинхронный сервер должен действовать иначе.
+
+    Асинхронно ожидать подключения. Для этого служит метод tcp::acceptor::async_accept.
+    После того как клиент подключится, установить с ним асинхронный обмен данными. Для этого использовать неблокирующие операции чтения и записи в сокет.
+    Ожидать следующее подключение.
+
+В описании класса acceptor сказано про его потокобезопасность:
+
+    Distinct objects: Safe. Можно безопасно обращаться из разных потоков к разным экземплярам класса acceptor.
+    Shared object: Unsafe. Обращаться к одному и тому же экземпляру acceptor из разных потоков нельзя.
+
+Чтобы гарантировать последовательный вызов асинхронных операций класса acceptor, при его конструировании нужно передать обёрнутый в strand контекст.
+Для этого создайте шаблонный класс Listener. Он будет принимать соединения клиентов и асинхронно выполнять обработку запросов. Внутри Listener будут храниться:
+
+    Ссылка на io_context, управляющий асинхронными операциями. Контекст требуется для конструирования сокета, поэтому нужно сохранить ссылку на этот контекст.
+    Экземпляр tcp::acceptor, принимающий соединения клиентов.
+    Экземпляр RequestHandler — обработчик запросов. К нему мы ещё вернёмся.
+
+// boost.beast будет использовать std::string_view вместо boost::string_view
+#define BOOST_BEAST_USE_STD_STRING_VIEW
+
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/strand.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
+
+// Ядро асинхронного HTTP-сервера будет располагаться в пространстве имён http_server
+namespace http_server {
+
+namespace net = boost::asio;
+using tcp = net::ip::tcp;
+namespace beast = boost::beast;
+namespace sys = boost::system;
+
+template <typename RequestHandler>
+class Listener : public std::enable_shared_from_this<Listener<RequestHandler>> {
+public:
+    template <typename Handler>
+    Listener(net::io_context& ioc, const tcp::endpoint& endpoint, Handler&& request_handler)
+        : ioc_(ioc)
+        // Обработчики асинхронных операций acceptor_ будут вызываться в своём strand
+        , acceptor_(net::make_strand(ioc))
+        , request_handler_(std::forward<Handler>(request_handler)) {
+        // Открываем acceptor, используя протокол (IPv4 или IPv6), указанный в endpoint
+        acceptor_.open(endpoint.protocol());
+
+        // После закрытия TCP-соединения сокет некоторое время может считаться занятым,
+        // чтобы компьютеры могли обменяться завершающими пакетами данных.
+        // Однако это может помешать повторно открыть сокет в полузакрытом состоянии.
+        // Флаг reuse_address разрешает открыть сокет, когда он "наполовину закрыт"
+        acceptor_.set_option(net::socket_base::reuse_address(true));
+        // Привязываем acceptor к адресу и порту endpoint
+        acceptor_.bind(endpoint);
+        // Переводим acceptor в состояние, в котором он способен принимать новые соединения
+        // Благодаря этому новые подключения будут помещаться в очередь ожидающих соединений
+        acceptor_.listen(net::socket_base::max_listen_connections);
+    }
+
+private:
+    net::io_context& ioc_;
+    tcp::acceptor acceptor_;
+    RequestHandler request_handler_;
+};
+
+}  // namespace http_server 
+
+Для асинхронного ожидания подключений используется метод tcp::acceptor::async_accept. Мы воспользуемся версией этого метода, которая принимает два параметра: executor и функцию-обработчик. Этот метод:
+
+    асинхронно дождётся подключения клиента;
+    создаст сокет, передав ему executor;
+    вызовет функцию-обработчик и передаст в неё код ошибки и созданный сокет.
+
+В качестве executor надо передать новый объект strand. Тогда переданный сокет будет вызывать свои функции-обработчики последовательно и независимо от функций-обработчиков других сокетов.
+
+net::io_context ioc;
+// acceptor будет вызывать свои функции-обработчики последовательно внутри strand
+tcp::acceptor acceptor{net::make_strand(ioc)};
+...
+acceptor.async_accept(
+    net::make_strand(ioc), // socket будет вызывать свои операции в своём strand
+    [](beast::error_code ec, tcp::socket socket) {
+        /* Если ec не содержит ошибки, через socket можно обмениваться данными */
+    }); 
+
+Чтобы в качестве функции обработчика передать метод текущего объекта, воспользуемся вспомогательной функцией beast::bind_front_handler. Она привязывает к своему первому аргументу (функции или методу) остальные аргументы и возвращает новый обработчик. Этот обработчик вызовет обёрнутую функцию, передав ей привязанные аргументы, а следом за ними — свои собственные.
+
+auto handler = boost::beast::bind_front_handler(SomeFunc, arg1, arg2);
+handler(arg3, arg4, arg5); // Вызовет SomeFunc(arg1, arg2, arg3, arg4, arg5); 
+
+Чтобы экземпляр Listener не был разрушен раньше времени, примените приём, с которым вы познакомились в программе приготовления гамбургеров:
+
+    Унаследуйте Listener от std::enable_shared_from_this.
+    Привяжите к методу-обработчику указатель shared_ptr, который ссылается на текущий объект.
+
+namespace http_server {
+
+void ReportError(beast::error_code ec, std::string_view what) {
+    std::cerr << what << ": "sv << ec.message() << std::endl;
+}
+
+template <typename RequestHandler>
+class Listener : public std::enable_shared_from_this<Listener<RequestHandler>> {
+public:
+    ...
+
+    void Run() {
+        DoAccept();
+    }
+
+private:
+    void DoAccept() {
+        acceptor_.async_accept(
+            // Передаём последовательный исполнитель, в котором будут вызываться обработчики
+            // асинхронных операций сокета
+            net::make_strand(ioc_),
+            // С помощью bind_front_handler создаём обработчик, привязанный к методу OnAccept
+            // текущего объекта.
+            // Так как Listener — шаблонный класс, нужно подсказать компилятору, что
+            // shared_from_this — метод класса, а не свободная функция.
+            // Для этого вызываем его, используя this
+            // Этот вызов bind_front_handler аналогичен
+            // namespace ph = std::placeholders;
+            // std::bind(&Listener::OnAccept, this->shared_from_this(), ph::_1, ph::_2)
+            beast::bind_front_handler(&Listener::OnAccept, this->shared_from_this()));
+    }
+
+    // Метод socket::async_accept создаст сокет и передаст его в OnAccept
+    void OnAccept(sys::error_code ec, tcp::socket socket) {
+        using namespace std::literals;
+
+        if (ec) {
+            return ReportError(ec, "accept"sv);
+        }
+
+        // Асинхронно обрабатываем сессию
+        AsyncRunSession(std::move(socket));
+
+        // Принимаем новое соединение
+        DoAccept();
+    }
+
+    void AsyncRunSession(tcp::socket&& socket) {
+        // ...
+    }
+
+    ...
+};
+
+}  // namespace http_server 
+
+Содержимое метода AsyncRunSession рассмотрим в следующем разделе.
+Что произойдёт, если вызывать версию метода acceptor::async_accept, которая не принимает параметр executor, а только функцию-обработчик?
+Сервер будет работать нестабильно.
+Производительность сервера увеличится.
+Ничего не изменится.
+Правильный ответ
+Производительность сервера уменьшится.
+Программа не скомпилируется.
+Как вам задача?
+В этом случае сокеты, которые создаёт акцептор, будут использовать тот же объект strand, что и акцептор. В результате обработчики асинхронных операций сокета и акцептора будут выполняться строго последовательно, независимо от количества рабочих потоков. Это негативно скажется на производительности сервера — работу, которую можно было бы выполнять параллельно, он будет делать последовательно.
+Прекрасно: ваш сервер умеет асинхронно принимать соединения. В следующем уроке вы реализуете асинхронную обработку сессии и соберёте части сервера вместе.\
+
+Асинхронный http-сервер. Часть 2
+В прошлом уроке вы научили сервер асинхронно принимать соединения клиентов. В этом уроке вы реализуете асинхронное обслуживание HTTP-сессии и запустите сервер.
+💡 Не путайте понятия HTTP-сессия и Web-сессия. HTTP-сессия — это неразрывный сеанс обмена информацией между сервером и клиентом. Web-сессия — механизм идентификации клиента. При этом механизме веб-сервер сохраняет у себя некую информацию о состоянии клиента и передаёт в ответе клиенту идентификатор этой информации. В последующих запросах клиент передаёт серверу этот идентификатор, и сервер может отличить этого пользователя от других. В уроках этого спринта под сессией понимается HTTP-сессия.
+В синхронном сервере для обслуживания HTTP-сессии использовалась функция HandleConnection. Она в цикле считывала из сокета запрос в буфер, обрабатывала его и записывала ответ сервера в сокет.
+
+template <typename RequestHandler>
+void HandleConnection(tcp::socket& socket, RequestHandler&& handle_request) {
+    try {
+        // Буфер для чтения данных в рамках текущей сессии.
+        beast::flat_buffer buffer;
+
+        // Продолжаем обработку запросов, пока клиент их отправляет
+        while (auto request = ReadRequest(socket, buffer)) {
+            StringResponse response = handle_request(*std::move(request));
+            http::write(socket, response);
+            if (response.need_eof()) {
+                break;
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << std::endl;
+    }
+    beast::error_code ec;
+    // Запрещаем дальнейшую отправку данных через сокет
+    socket.shutdown(tcp::socket::shutdown_send, ec);
+} 
+
+В асинхронном коде обработка сессии больше не атомарна. Она состоит из серии асинхронных операций, между которыми нужно сохранять состояние следующих объектов:
+
+    Сам сокет. Используем beast::tcp_stream, чтобы иметь возможность задавать таймауты для операций чтения и записи.
+    Буфер, в который считываются данные.
+    Объект запроса.
+    Обработчик запроса.
+
+Иными словами, объекты, которые в синхронной версии были локальными переменными и параметрами функции, теперь станут полями шаблонного класса Session. Этот класс будет отвечать за сеанс асинхронного обмена данными с клиентом. Экземпляры этого класса будут размещаться в куче, чтобы не разрушиться раньше времени. Для управления временем жизни экземпляров Session будет использован приём с захватом указателя shared_ptr на текущий объект.
+
+namespace http_server {
+
+class SessionBase {
+protected:
+    using HttpRequest = http::request<http::string_body>;
+
+    ~SessionBase() = default;
+private:
+    // tcp_stream содержит внутри себя сокет и добавляет поддержку таймаутов
+    beast::tcp_stream stream_;
+    beast::flat_buffer buffer_;
+    HttpRequest request_;
+};
+
+template <typename RequestHandler>
+class Session : public SessionBase, public std::enable_shared_from_this<Session<RequestHandler>> {
+
+private:
+    RequestHandler request_handler_;
+};
+
+} // namespace http_server 
+
+Деструктор базового класса SessionBase здесь не объявлен виртуальным. К каким последствиям это может привести?
+Неправильный ответ
+При удалении наследников SessonBase через указатель на базовый класс может произойти неопределённое поведение.
+Программа не скомпилируется.
+Тоже правильный ответ
+Здесь нет ошибки.
+Как вам задача?
+Класс SessionBase не предназначен для полиморфного удаления. Поэтому его деструктор объявлен защищённым и невиртуальным, чтобы уменьшить накладные расходы.
+Жизненный цикл сессии начинается с её конструктора:
+
+namespace http_server {
+
+...
+
+class SessionBase {
+public:
+    // Запрещаем копирование и присваивание объектов SessionBase и его наследников
+    SessionBase(const SessionBase&) = delete;
+    SessionBase& operator=(const SessionBase&) = delete;
+protected:
+    explicit SessionBase(tcp::socket&& socket)
+        : stream_(std::move(socket)) {
+    }
+    ...
+};
+
+template <typename RequestHandler>
+class Session : public SessionBase, public std::enable_shared_from_this<Session<RequestHandler>> {
+public:
+    template <typename Handler>
+    Session(tcp::socket&& socket, Handler&& request_handler)
+        : SessionBase(std::move(socket))
+        , request_handler_(std::forward<Handler>(request_handler)) {
+    }
+    ...
+};
+
+} // namespace http_server 
+
+Для асинхронного запуска сессии добавьте метод SessionBase::Run. В Listener::AsyncRunSession сконструируйте сессию, используя std::make_shared и вызовите Run.
+http_server.h:
+
+namespace http_server {
+
+...
+
+class SessionBase {
+public:
+    ...
+    void Run();
+
+private:
+    void Read() { /* Асинхронное чтение запроса */ }
+
+    virtual std::shared_ptr<SessionBase> GetSharedThis() = 0;
+};
+
+template <typename RequestHandler>
+class Session : public SessionBase, public std::enable_shared_from_this<Session<RequestHandler>> {
+    ...
+private:
+    std::shared_ptr<SessionBase> GetSharedThis() override {
+        return this->shared_from_this();
+    }    
+};
+
+template <typename RequestHandler>
+class Listener : public std::enable_shared_from_this<Listener<RequestHandler>> {
+    ...
+private:
+    void AsyncRunSession(tcp::socket&& socket) {
+        std::make_shared<Session<RequestHandler>>(std::move(socket), request_handler_)->Run();
+    }
+    ...
+};
+
+} // namespace http_server 
+
+Так как метод SessionBase::Run мы вызвали внутри strand, связанного с акцептором, желательно как можно быстрее выйти из обработчика и начать ожидать подключение следующего клиента. Поэтому дальнейшую работу с сокетом будем проводить в его собственном strand. Воспользуемся функцией boost::asio::dispatch, чтобы вызвать метод SessionBase::Read внутри strand сокета. Не забудем захватить std::shared_ptr на текущий объект.
+http_server.cpp:
+
+namespace http_server {
+
+void SessionBase::Run() {
+    // Вызываем метод Read, используя executor объекта stream_.
+    // Таким образом вся работа со stream_ будет выполняться, используя его executor
+    net::dispatch(stream_.get_executor(),
+                  beast::bind_front_handler(&SessionBase::Read, GetSharedThis()));
+}
+
+} // namespace http_server 
+
+Что произойдёт, если в net::dispatch не передавать stream_.get_executor(), а только лишь результат beast::bind_front_handler?
+Результат работы программы не изменится.
+Метод SessionBase::Read вызван не будет.
+Метод SessionBase::Read будет вызван синхронно.
+Метод SessionBase::Read будет вызван асинхронно.
+Правильный ответ
+Метод SessionBase::Read будет вызван либо синхронно, либо асинхронно.
+Программа не скомпилируется.
+Программа упадёт.
+Как вам задача?
+Среди перегрузок функции net::dispatch есть и та, которая принимает только объект-обработчик. В этом случае функция выполнит вызов, используя системный executor, который может выполнить вызов либо синхронно, либо асинхронно. Параллельно с методом Read другие методы класса SessionBase не вызываются. Поэтому вызов будет безопасным, хоть и произойдёт вне strand, связанного с сокетом.
+В методе Read при помощи асинхронной функции http::async_read прочитайте запрос.
+
+namespace http_server {
+
+...
+
+class SessionBase {
+    ...
+private:
+    ...
+    void Read() {
+        using namespace std::literals;
+        // Очищаем запрос от прежнего значения (метод Read может быть вызван несколько раз)
+        request_ = {};
+        stream_.expires_after(30s);
+        // Считываем request_ из stream_, используя buffer_ для хранения считанных данных
+        http::async_read(stream_, buffer_, request_,
+                         // По окончании операции будет вызван метод OnRead
+                         beast::bind_front_handler(&SessionBase::OnRead, GetSharedThis()));
+    }
+
+    void OnRead(beast::error_code ec, [[maybe_unused]] std::size_t bytes_read) {
+    }
+};
+
+} // namespace http_server 
+
+В OnRead возможны три ситуации:
+
+    Если клиент закрыл соединение, то сервер должен завершить сеанс.
+    Если произошла ошибка чтения, выведите её в stdout.
+    Если запрос прочитан без ошибок, делегируйте его обработку классу-наследнику.
+
+namespace http_server {
+
+...
+
+class SessionBase {
+    ...
+private:
+    ...
+    void OnRead(beast::error_code ec, [[maybe_unused]] std::size_t bytes_read) {
+        using namespace std::literals;
+        if (ec == http::error::end_of_stream) {
+            // Нормальная ситуация - клиент закрыл соединение
+            return Close();
+        }
+        if (ec) {
+            return ReportError(ec, "read"sv);
+        }
+        HandleRequest(std::move(request_));
+    }
+
+    void Close() {
+        beast::error_code ec;
+        stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
+    }
+
+    // Обработку запроса делегируем подклассу
+    virtual void HandleRequest(HttpRequest&& request) = 0;
+};
+
+} // namespace http_server 
+
+Для обработки запроса нужно вызвать функцию request_handler_, переданную в Session. Эта функция принимает два параметра:
+
+    Rvalue-ссылку на запрос.
+    Функцию, отправляющую ответ клиенту. В качестве этой функции используется обобщённая лямбда-функция — аналог шаблонной функции. Это позволит обработчику передавать в лямбда-функцию ответ произвольного типа, что пригодится в будущем.
+
+Ответ, возвращённый из функции request_handler_, нужно отправить клиенту. Для этого в методе SessionBase::Write вызовите функцию http::async_write. Чтобы продлить время жизни ответа до окончания записи, надо переместить содержимое ответа в область кучи и сохранить умный указатель на этот объект в списке захвата лямбда-функции.
+После записи вызовите метод OnWriteи обработайте результат. Воспользуйтесь методом http::response::need_eof, чтобы сообщить методу OnWrite, нужно ли закрыть соединение.
+
+namespace http_server {
+
+...
+
+class SessionBase {
+protected:
+    template <typename Body, typename Fields>
+    void Write(http::response<Body, Fields>&& response) {
+        // Запись выполняется асинхронно, поэтому response перемещаем в область кучи
+        auto safe_response = std::make_shared<http::response<Body, Fields>>(std::move(response));
+
+        auto self = GetSharedThis();
+        http::async_write(stream_, *safe_response,
+                          [safe_response, self](beast::error_code ec, std::size_t bytes_written) {
+                              self->OnWrite(safe_response->need_eof(), ec, bytes_written);
+                          });
+    }
+    ...
+private:
+    void OnWrite(bool close, beast::error_code ec, [[maybe_unused]] std::size_t bytes_written) {
+    }
+};
+
+template <typename RequestHandler>
+class Session : public SessionBase, public std::enable_shared_from_this<Session<RequestHandler>> {
+private:
+    void HandleRequest(HttpRequest&& request) override {
+        // Захватываем умный указатель на текущий объект Session в лямбде,
+        // чтобы продлить время жизни сессии до вызова лямбды.
+        // Используется generic-лямбда функция, способная принять response произвольного типа
+        request_handler_(std::move(request), [self = this->shared_from_this()](auto&& response) {
+            self->Write(std::move(response));
+        });
+    }
+};
+
+} // namespace http_server 
+
+Если при отправке ответа возникла ошибка, остаётся только завершить обмен данными с клиентом. В противном случае в зависимости от параметра close закройте соединение либо продолжите обмен данными с клиентом.
+
+class SessionBase {
+    ...
+private:
+    void OnWrite(bool close, beast::error_code ec, [[maybe_unused]] std::size_t bytes_written) {
+        if (ec) {
+            return ReportError(ec, "write"sv);
+        }
+
+        if (close) {
+            // Семантика ответа требует закрыть соединение
+            return Close();
+        }
+
+        // Считываем следующий запрос
+        Read();
+    }
+    ...
+}; 
+
+Внутри Session управление по очереди получают методы: Read → OnRead → HandleRequest → Write → OnWrite, а затем снова Read. Есть ли здесь риск бесконечной рекурсии?
+Неправильный ответ
+Есть
+Тоже правильный ответ
+Нет
+Как вам задача?
+Здесь нет рекурсии, так как методы OnRead и OnWrite вызываются асинхронно — их вызывает не сама программа, а операционная система и Boost.Asio.
+Основная часть работы позади. Осталось запустить сервер. Для запуска сервера создадим вспомогательную функцию ServeHttp. Чтобы из типа RequestHandler, получить тип без ссылок, необходимый для конструирования Listener, воспользуемся вспомогательным типом std::decay_t. Сконструировав Listener сразу запустим его. Слушатель не удалится благодаря захвату shared_ptr на текущий объект в классе Listener до тех пор, пока работа io_context не будет остановлена в обработчике сигналов.
+
+namespace http_server {
+
+...
+
+template <typename RequestHandler>
+void ServeHttp(net::io_context& ioc, const tcp::endpoint& endpoint, RequestHandler&& handler) {
+    // При помощи decay_t исключим ссылки из типа RequestHandler,
+    // чтобы Listener хранил RequestHandler по значению
+    using MyListener = Listener<std::decay_t<RequestHandler>>;
+
+    std::make_shared<MyListener>(ioc, endpoint, std::forward<RequestHandler>(handler))->Run();
+}
+}  // namespace http_server 
+
+Для запуска сервера вызовем функцию http_server::ServeHttp и передадим в неё generic лямбда-функцию. В лямбде вызовем функцию HandleRequest, которая использовалась синхронным сервером, и передадим ответ сервера в функцию sender:
+
+StringResponse HandleRequest(StringRequest&& req) {
+    const auto text_response = [&req](http::status status, std::string_view text) {
+    /* Код обработчика запросов можно взять из синхронной версии сервера */
+}
+
+int main() {
+    ...
+
+    const auto address = net::ip::make_address("0.0.0.0");
+    constexpr net::ip::port_type port = 8080;
+    http_server::ServeHttp(ioc, {address, port}, [](auto&& req, auto&& sender) {
+        sender(HandleRequest(std::forward<decltype(req)>(req)));
+    });
+
+    RunWorkers(num_threads, [&ioc] {
+        ioc.run();
+    });
+} 
+
+Сервер, запущенный функцией ServeHttp, будет принимать соединения и вызывать функцию HandleRequest для обработки запросов. Сложный код, отвечающий за обслуживание сессии, оказался спрятан за вызовом ServeHttp, а программе остаётся лишь подставить свою функцию обработки запросов.
+
+
+Задание
+Возьмите заготовку кода из папки sprint1/problems/async_server/precode и соберите асинхронную версию HTTP-сервера, принимающего HTTP-запросы на порте 8080, как показано в уроке. Сервер должен выдавать ответ на GET-запрос в следующем виде:
+
+    Статус-код ответа: 200 OK
+    HTTP-заголовок Content-Type должен иметь значение text/html
+    Тело ответа должно быть равно Hello, {target}, где {target} — содержимое параметра target запроса, из которого удалили ведущий символ /. Например, при запросе URL-а: http://127.0.0.1:8080/Ivan тело ответа должно быть равно Hello, Ivan.
+    HTTP-заголовок Content-Length имеет значение, равное длине тела ответа в байтах. Например, для строки Hello, Ivan заголовок Content-Length должен иметь значение 11.
+
+Ответ на запрос HEAD должен быть аналогичен ответу на запрос GET за исключением пустого тела ответа. Значение заголовка Content-Length также должно быть равно заголовку соответствующего GET-запроса.
+Ответ на запросы, отличные от GET и HEAD, должен иметь следующий вид:
+
+    Статус-код ответа: 405 Method Not Allowed
+    HTTP-заголовок Content-Type имеет значение text/html.
+    HTTP-заголовок Allow имеет значение GET, HEAD.
+    Тело ответа: Invalid method.
+    HTTP-заголовок Content-Length имеет значение, равное длине тела ответа в байтах. Для тела Invalid method оно должно быть равно 14.
+
+Обработайте сигналы SIGTERM и SIGINT, чтобы программа могла корректно завершиться по Ctrl+C или с помощью команды kill. 
+Как будет тестироваться ваш сервер
+В заготовке кода вы найдёте набор тестов, которые запустят ваш сервер и убедятся, что он корректно обрабатывает запросы и реагирует на сигналы.
+Как только сервер будет готов обрабатывать запросы, он должен вывести в stdout строку Server has started..., чтобы тесты не начали проверять его работу раньше времени.
+При тестировании проект будет собран утилитой CMake, и запущен. Не меняйте название главной цели — hello_async.
+
+Подсказки
+
+    Соберите программу шаг за шагом, как показано в теории.
+    Используйте тело функции-обработчика из синхронной версии сервера.
+    Перед вызовом функции RunWorkers выведите надпись Server has started.... Так тесты поймут, что сервер проинициализирован и готов обрабатывать запросы.
+
+int main() {
+    ...
+    http_server::ServeHttp(ioc, {address, port}, [](auto&& req, auto&& sender) {
+        ...
+    });
+
+    // Эта надпись сообщает тестам о том, что сервер запущен и готов обрабатывать запросы
+    std::cout << "Server has started..."sv << std::endl;
+
+    RunWorkers(num_threads, [&ioc] {
+        ioc.run();
+    });
+} 
