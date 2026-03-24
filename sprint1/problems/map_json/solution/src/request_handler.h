@@ -45,7 +45,7 @@ public:
 
         if (target.rfind("api/v1/maps", 0) == 0) {
             std::string path = target.substr(11);
-            if (path.empty()) {
+            if (path.empty() || path == "/") {
                 send(HandleMapsList(req));
             } else if (path[0] == '/') {
                 send(HandleMapById(req, path.substr(1)));
