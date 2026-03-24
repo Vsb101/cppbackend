@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <functional>
 #include <optional>
 
@@ -140,14 +141,14 @@ private:
 class Store {
 public:
     std::shared_ptr<Bread> GetBread() {
-        return std::make_shared<Bread>(next_bread_id_++);
+        return std::make_shared<Bread>(next_bread_id_.fetch_add(1));
     }
 
     std::shared_ptr<Sausage> GetSausage() {
-        return std::make_shared<Sausage>(next_sausage_id_++);
+        return std::make_shared<Sausage>(next_sausage_id_.fetch_add(1));
     }
 
 private:
-    int next_bread_id_ = 0;
-    int next_sausage_id_ = 0;
+    std::atomic<int> next_bread_id_{0};
+    std::atomic<int> next_sausage_id_{0};
 };
