@@ -8,10 +8,12 @@ namespace json_loader {
 
 namespace json = boost::json;
 
-// Читает содержимое файла и возвращает его как строку.
-// Использует ifstream для чтения файла, весь контент
-// записывается в string через ostringstream.
-// Если файл не удаётся открыть - выбрасывает исключение runtime_error.
+/**
+ * @brief Читает содержимое файла и возвращает его как строку.
+ * @param path Путь к файлу
+ * @return Содержимое файла
+ * @throw std::runtime_error если файл не удалось открыть
+ */
 std::string ReadFile(const std::filesystem::path& path) {
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -22,14 +24,19 @@ std::string ReadFile(const std::filesystem::path& path) {
     return stream.str();
 }
 
-// Преобразует JSON-объект дороги в модель Road.
-// Дорога может быть горизонтальной (содержит x1) или вертикальной (содержит y1).
-// Горизонтальная дорога: { "x0": 0, "y0": 0, "x1": 40 } - от (0,0) до (40,0)
-// Вертикальная дорога: { "x0": 0, "y0": 0, "y1": 20 } - от (0,0) до (0,20)
+/**
+ * @brief Парсит JSON-объект дороги в модель Road.
+ * @param road_obj JSON-объект дороги
+ * @return Объект Road
+ *
+ * Горизонтальная дорога (есть x1):
+ * { "x0": 0, "y0": 0, "x1": 40 }  -> от (0,0) до (40,0)
+ *
+ * Вертикальная дорога (есть y1):
+ * { "x0": 0, "y0": 0, "y1": 20 }  -> от (0,0) до (0,20)
+ */
 model::Road ParseRoad(const json::object& road_obj) {
     model::Point start{
-        // тут не работает (и делее)
-        // road_obj.at("x0").as_int()
         static_cast<model::Coord>(road_obj.at("x0").as_int64()),
         static_cast<model::Coord>(road_obj.at("y0").as_int64())
     };
@@ -42,9 +49,15 @@ model::Road ParseRoad(const json::object& road_obj) {
     }
 }
 
-// Преобразует JSON-объект здания в модель Building.
-// Здание описывается координатами верхнего левого угла (x, y), шириной (w) и высотой (h).
-// Пример: { "x": 5, "y": 5, "w": 30, "h": 20 }
+/**
+ * @brief Парсит JSON-объект здания в модель Building.
+ * @param building_obj JSON-объект здания
+ * @return Объект Building
+ *
+ * Формат:
+ * { "x": 5, "y": 5, "w": 30, "h": 20 }
+ * где x, y - координаты верхнего левого угла, w, h - размеры
+ */
 model::Building ParseBuilding(const json::object& building_obj) {
     model::Rectangle bounds{
         model::Point{
@@ -59,9 +72,14 @@ model::Building ParseBuilding(const json::object& building_obj) {
     return model::Building(bounds);
 }
 
-// Преобразует JSON-объект офиса в модель Office.
-// Офис содержит уникальный id, координаты (x, y) и смещение (offsetX, offsetY) для визуализации.
-// Пример: { "id": "o0", "x": 40, "y": 30, "offsetX": 5, "offsetY": 0 }
+/**
+ * @brief Парсит JSON-объект офиса в модель Office.
+ * @param office_obj JSON-объект офиса
+ * @return Объект Office
+ *
+ * Формат:
+ * { "id": "o0", "x": 40, "y": 30, "offsetX": 5, "offsetY": 0 }
+ */
 model::Office ParseOffice(const json::object& office_obj) {
     model::Office::Id office_id(std::string(office_obj.at("id").as_string()));
     model::Point position{
@@ -75,25 +93,32 @@ model::Office ParseOffice(const json::object& office_obj) {
     return model::Office(office_id, position, offset);
 }
 
-// Преобразует JSON-объект карты в модель Map.
-// Карта содержит обязательные поля: id, name, roads (массив дорог).
-// Опциональные поля: buildings (здания), offices (офисы).
-// Вызывает ParseRoad, ParseBuilding, ParseOffice для каждого элемента массивов.
+/**
+ * @brief Парсит JSON-объект карты в модель Map.
+ * @param map_obj JSON-объект карты
+ * @return Объект Map
+ *
+ * Обязательные поля: id, name, roads
+ * Опциональные поля: buildings, offices
+ */
 model::Map ParseMap(const json::object& map_obj) {
     std::string map_id = std::string(map_obj.at("id").as_string());
     std::string map_name = std::string(map_obj.at("name").as_string());
     model::Map map(model::Map::Id(map_id), map_name);
 
+    // Парсим дороги (обязательное поле)
     for (const auto& road_value : map_obj.at("roads").as_array()) {
         map.AddRoad(ParseRoad(road_value.as_object()));
     }
 
+    // Парсим здания (опциональное поле)
     if (map_obj.contains("buildings")) {
         for (const auto& building_value : map_obj.at("buildings").as_array()) {
             map.AddBuilding(ParseBuilding(building_value.as_object()));
         }
     }
 
+    // Парсим офисы (опциональное поле)
     if (map_obj.contains("offices")) {
         for (const auto& office_value : map_obj.at("offices").as_array()) {
             map.AddOffice(ParseOffice(office_value.as_object()));
@@ -103,10 +128,21 @@ model::Map ParseMap(const json::object& map_obj) {
     return map;
 }
 
-// Главная функция загрузки игры.
-// Читает JSON-файл, парсит его, создаёт модель игры с картами.
-// Ожидается структура: { "maps": [ { ... }, { ... } ] }
-// Выбрасывает исключение, если файл не найден или JSON некорректен.
+/**
+ * @brief Главная функция загрузки игры из файла.
+ * @param json_path Путь к JSON-файлу конфигурации
+ * @return Объект Game с загруженными картами
+ *
+ * Ожидаемый формат:
+ * @code
+ * {
+ *   "maps": [
+ *     { "id": "map1", "name": "First", "roads": [...] },
+ *     { "id": "map2", "name": "Second", "roads": [...] }
+ *   ]
+ * }
+ * @endcode
+ */
 model::Game LoadGame(const std::filesystem::path& json_path) {
     std::string json_str = ReadFile(json_path);
     auto value = json::parse(json_str);

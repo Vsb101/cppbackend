@@ -6,9 +6,22 @@ namespace http_handler {
 
 namespace json = boost::json;
 
-// Сериализует карту в JSON-строку.
-// Включает все поля: id, name, roads, buildings, offices.
-// Возвращает JSON-строку, готовую для отправки клиенту.
+/**
+ * @brief Сериализует карту в JSON-строку
+ * @param map Карта для сериализации
+ * @return JSON-строка со всеми полями: id, name, roads, buildings, offices
+ * 
+ * Пример вывода:
+ * @code
+ * {
+ *   "id": "map1",
+ *   "name": "First Map",
+ *   "roads": [{"x0": 0, "y0": 0, "x1": 10}],
+ *   "buildings": [{"x": 5, "y": 5, "w": 30, "h": 20}],
+ *   "offices": [{"id": "o1", "x": 100, "y": 200, "offsetX": 5, "offsetY": 0}]
+ * }
+ * @endcode
+ */
 std::string MapToJson(const model::Map& map) {
     json::object result;
     
@@ -16,6 +29,11 @@ std::string MapToJson(const model::Map& map) {
     result["name"] = map.GetName();
     
     // Сериализуем дороги
+    // Пример:
+    // В памяти дорога — это объект с полями:
+    // Road road{{x0, y0}, {x1, y1}}  // начало и конец
+    // После сериализации в JSON:
+    // {"x0": 0, "y0": 0, "x1": 10}
     json::array roads;
     for (const auto& road : map.GetRoads()) {
         json::object road_obj;
@@ -60,9 +78,18 @@ std::string MapToJson(const model::Map& map) {
     return json::serialize(result);
 }
 
-// Сериализует список карт в JSON-строку.
-// Возвращает массив объектов с полями id и name для каждой карты.
-// Используется для эндпоинта GET /api/v1/maps
+/**
+ * @brief Сериализует список карт в JSON-строку
+ * @param game Игра, содержащая карты
+ * @return JSON-массив с объектами, содержащими id и name для каждой карты
+ * 
+ * Используется для эндпоинта GET /api/v1/maps
+ * 
+ * Пример вывода:
+ * @code
+ * [{"id": "map1", "name": "First Map"}, {"id": "map2", "name": "Second Map"}]
+ * @endcode
+ */
 std::string MapsListToJson(const model::Game& game) {
     json::array maps_array;
     
@@ -76,9 +103,12 @@ std::string MapsListToJson(const model::Game& game) {
     return json::serialize(maps_array);
 }
 
-// Создаёт успешный HTTP-ответ с кодом 200 OK.
-// Принимает тело ответа и исходный запрос (для keep_alive).
-// Устанавливает заголовок Content-Type: application/json.
+/**
+ * @brief Создаёт успешный HTTP-ответ с кодом 200 OK
+ * @param body Тело ответа (JSON-строка)
+ * @param req Исходный запрос (для keep_alive)
+ * @return HTTP-ответ с Content-Type: application/json
+ */
 http::response<http::string_body> RequestHandler::MakeOkResponse(const std::string& body, const http::request<http::string_body>& req) {
     http::response<http::string_body> response;
     response.result(http::status::ok);
@@ -89,8 +119,13 @@ http::response<http::string_body> RequestHandler::MakeOkResponse(const std::stri
     return response;
 }
 
-// Создаёт HTTP-ответ с кодом 400 Bad Request.
-// Используется для неверного формата запроса или некорректного URI.
+/**
+ * @brief Создаёт HTTP-ответ с кодом 400 Bad Request
+ * @param req Исходный запрос
+ * @return HTTP-ответ с кодом ошибки "badRequest"
+ * 
+ * Используется для неверного формата запроса или некорректного URI.
+ */
 http::response<http::string_body> RequestHandler::MakeBadRequestResponse(const http::request<http::string_body>& req) {
     http::response<http::string_body> response;
     response.result(http::status::bad_request);
@@ -101,8 +136,13 @@ http::response<http::string_body> RequestHandler::MakeBadRequestResponse(const h
     return response;
 }
 
-// Создаёт HTTP-ответ с кодом 404 Not Found.
-// Используется для запросов к несуществующим ресурсам (не /api/...).
+/**
+ * @brief Создаёт HTTP-ответ с кодом 404 Not Found
+ * @param req Исходный запрос
+ * @return HTTP-ответ для несуществующих ресурсов
+ * 
+ * Используется для запросов к несуществующим ресурсам (не /api/...).
+ */
 http::response<http::string_body> RequestHandler::MakeNotFoundResponse(const http::request<http::string_body>& req) {
     http::response<http::string_body> response;
     response.result(http::status::not_found);
@@ -113,9 +153,13 @@ http::response<http::string_body> RequestHandler::MakeNotFoundResponse(const htt
     return response;
 }
 
-// Создаёт HTTP-ответ с кодом 405 Method Not Allowed.
-// Используется для запросов с неподдерживаемым HTTP-методом (не GET/HEAD).
-// Добавляет заголовок Allow с разрешёнными методами.
+/**
+ * @brief Создаёт HTTP-ответ с кодом 405 Method Not Allowed
+ * @param req Исходный запрос
+ * @return HTTP-ответ с заголовком Allow, содержащим разрешённые методы
+ * 
+ * Используется для запросов с неподдерживаемым HTTP-методом (не GET/HEAD).
+ */
 http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(const http::request<http::string_body>& req) {
     http::response<http::string_body> response;
     response.result(http::status::method_not_allowed);
@@ -127,16 +171,22 @@ http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(c
     return response;
 }
 
-// Обрабатывает запрос GET /api/v1/maps.
-// Возвращает JSON-массив со списком всех карт (только id и name).
+/**
+ * @brief Обрабатывает запрос GET /api/v1/maps
+ * @param req HTTP-запрос
+ * @return JSON-массив со списком всех карт (только id и name)
+ */
 http::response<http::string_body> RequestHandler::HandleMapsList(const http::request<http::string_body>& req) {
     std::string body = MapsListToJson(game_);
     return MakeOkResponse(body, req);
 }
 
-// Обрабатывает запрос GET /api/v1/maps/{id}.
-// Ищет карту по идентификатору. Если не найдена - возвращает 404 с кодом mapNotFound.
-// Если найдена - возвращает полное описание карты в JSON.
+/**
+ * @brief Обрабатывает запрос GET /api/v1/maps/{id}
+ * @param req HTTP-запрос
+ * @param map_id Идентификатор карты
+ * @return Полное описание карты в JSON или 404 с кодом "mapNotFound", если не найдена
+ */
 http::response<http::string_body> RequestHandler::HandleMapById(const http::request<http::string_body>& req, const std::string& map_id) {
     const model::Map* map = game_.FindMap(model::Map::Id(map_id));
     if (map == nullptr) {

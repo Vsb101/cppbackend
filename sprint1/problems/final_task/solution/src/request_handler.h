@@ -8,29 +8,54 @@ namespace http_handler {
 namespace beast = boost::beast;
 namespace http = beast::http;
 
-// Сериализует карту в JSON-строку (полное описание)
+/**
+ * @brief Сериализует карту в JSON-строку (полное описание)
+ * @param map Карта для сериализации
+ * @return JSON-строка со всеми полями: id, name, roads, buildings, offices
+ */
 std::string MapToJson(const model::Map& map);
-// Сериализует список карт в JSON-строку (только id и name)
+
+/**
+ * @brief Сериализует список карт в JSON-строку (только id и name)
+ * @param game Игра, содержащая карты
+ * @return JSON-массив с объектами, содержащими id и name для каждой карты
+ */
 std::string MapsListToJson(const model::Game& game);
 
-// Обработчик HTTP-запросов.
-// Делегирует запросы соответствующим методам Handle* в зависимости от URI.
+/**
+ * @class RequestHandler
+ * @brief Обработчик HTTP-запросов.
+ * 
+ * Делегирует запросы соответствующим методам Handle* в зависимости от URI.
+ * Поддерживает методы GET и HEAD.
+ * 
+ * @note По сути, RequestHandler — это владелец ссылки на Game,
+ * и он должен быть единичным (singleton).
+ */
 class RequestHandler {
 public:
+    /**
+     * @brief Конструктор
+     * @param game Ссылка на модель игры
+     */
     explicit RequestHandler(model::Game& game)
         : game_{game} {
     }
 
-    // Примечание
-    // По сути, RequestHandler — это владелец ссылки на Game,
-    // и он должен быть единичным (singleton).
-    // Удаляя копирование, это подчёркиваем.
+    // Удаляем копирование — подчёркиваем singleton-природу
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
 
-    // Точка входа для обработки запроса.
-    // Выполняет роутинг: определяет какой метод Handle* вызвать по URI.
-    // Поддерживает GET и HEAD методы.
+    /**
+     * @brief Точка входа для обработки запроса
+     * @tparam Body Тип тела запроса
+     * @tparam Allocator Тип аллокатора
+     * @tparam Send Тип callback-а для отправки ответа
+     * @param req HTTP-запрос
+     * @param send Callback для отправки ответа
+     * 
+     * Выполняет роутинг: определяет какой метод Handle* вызвать по URI.
+     */
     template <typename Body, typename Allocator, typename Send>
     void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
         std::string target(req.target());
@@ -63,13 +88,49 @@ private:
     model::Game& game_;
 
     // Фабрики ответов
+    /**
+     * @brief Создаёт успешный HTTP-ответ с кодом 200 OK
+     * @param body Тело ответа (JSON-строка)
+     * @param req Исходный запрос (для keep_alive)
+     * @return HTTP-ответ с Content-Type: application/json
+     */
     http::response<http::string_body> MakeOkResponse(const std::string& body, const http::request<http::string_body>& req);
+    
+    /**
+     * @brief Создаёт HTTP-ответ с кодом 400 Bad Request
+     * @param req Исходный запрос
+     * @return HTTP-ответ с кодом ошибки "badRequest"
+     */
     http::response<http::string_body> MakeBadRequestResponse(const http::request<http::string_body>& req);
+    
+    /**
+     * @brief Создаёт HTTP-ответ с кодом 404 Not Found
+     * @param req Исходный запрос
+     * @return HTTP-ответ для несуществующих ресурсов
+     */
     http::response<http::string_body> MakeNotFoundResponse(const http::request<http::string_body>& req);
+    
+    /**
+     * @brief Создаёт HTTP-ответ с кодом 405 Method Not Allowed
+     * @param req Исходный запрос
+     * @return HTTP-ответ с заголовком Allow
+     */
     http::response<http::string_body> MakeMethodNotAllowedResponse(const http::request<http::string_body>& req);
 
-    // Обработчики конкретных эндпоинтов
+    // Обработчики эндпоинтов
+    /**
+     * @brief Обрабатывает GET /api/v1/maps
+     * @param req HTTP-запрос
+     * @return JSON-массив со списком всех карт (только id и name)
+     */
     http::response<http::string_body> HandleMapsList(const http::request<http::string_body>& req);
+    
+    /**
+     * @brief Обрабатывает GET /api/v1/maps/{id}
+     * @param req HTTP-запрос
+     * @param map_id Идентификатор карты
+     * @return Полное описание карты в JSON или 404, если не найдена
+     */
     http::response<http::string_body> HandleMapById(const http::request<http::string_body>& req, const std::string& map_id);
 };
 

@@ -40,7 +40,7 @@ void SessionBase::OnWrite(bool close, beast::error_code ec, std::size_t bytes_wr
     if (close) {
         return Close();
     }
-    Read();  // Читаем следующий запрос
+    Read();
 }
 
 template <typename Body, typename Fields>
@@ -53,7 +53,7 @@ void SessionBase::Write(http::response<Body, Fields>&& response) {
                       });
 }
 
-// Явная инстанциация шаблонов для поддержки разных типов ответов
+// Явная инстанциация шаблона (Explicit Template Instantiation)
 template void SessionBase::Write(http::response<http::string_body>&&);
 
 }  // namespace http_server
