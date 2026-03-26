@@ -64,8 +64,8 @@ int main(int argc, const char* argv[]) {
 
         // Эта надпись сообщает тестам о том, что сервер запущен и готов обрабатывать запросы
         // Нужно по условию
-        //std::cout << "Server has started..."sv << std::endl;
-        std::cout << "Hello! Server is starting at port " << port << std::endl;
+        std::cout << "Server has started..."sv << std::endl;
+        
 
         // Запускаем обработку асинхронных операций
         RunWorkers(std::max(1u, num_threads), [&ioc] {
