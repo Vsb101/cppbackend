@@ -4,6 +4,7 @@
 #include <string>
 
 #include <boost/json/fwd.hpp>
+#include <boost/json.hpp>
 
 #include "model.h"
 
@@ -13,8 +14,9 @@ namespace json_loader {
  * @brief Загружает игру из JSON-файла конфигурации.
  * @param json_path Путь к JSON-файлу с конфигурацией игры
  * @return Объект Game с загруженными картами
- * @throw std::runtime_error если файл не найден или не удалось открыть
- * @throw boost::json::system_error при ошибках парсинга JSON
+ * @throw std::runtime_error если файл не найден, недоступен или произошла ошибка парсинга
+ * @throw std::invalid_argument при некорректном формате JSON
+ * @throw std::out_of_range если ожидаемое поле отсутствует в JSON
  *
  * Ожидаемый формат JSON:
  * @code

@@ -1,6 +1,9 @@
 #pragma once
+
 #include "http_server.h"
 #include "model.h"
+
+#include <boost/json.hpp>
 
 #include <string>
 
@@ -11,40 +14,49 @@ namespace http = beast::http;
 /**
  * @brief Сериализует карту в JSON-строку (полное описание)
  * @param map Карта для сериализации
- * @return JSON-строка со всеми полями: id, name, roads, buildings, offices */
+ * @return JSON-строка со всеми полями: id, name, roads, buildings, offices
+ */
 std::string MapToJson(const model::Map& map);
 
 /**
  * @brief Сериализует список карт в JSON-строку (только id и name)
  * @param game Игра, содержащая карты
- * @return JSON-массив с объектами, содержащими id и name для каждой карты */
+ * @return JSON-массив с объектами, содержащими id и name для каждой карты
+ */
 std::string MapsListToJson(const model::Game& game);
 
 /**
  * @brief Сериализует дорогу в JSON-объект
  * @param road Объект дороги
- * @return JSON-объект, представляющий дорогу *
+ * @return JSON-объект, представляющий дорогу
+ *
  * Горизонтальная дорога:
  * {"x0": 0, "y0": 0, "x1": 10}
  *
  * Вертикальная дорога:
- * {"x0": 0, "y0": 0, "y1": 20} */
+ * {"x0": 0, "y0": 0, "y1": 20}
+ */
 boost::json::object SerializeRoad(const model::Road& road);
 
 /**
  * @brief Сериализует здание в JSON-объект
  * @param building Объект здания
- * @return JSON-объект, представляющий здание *
+ * @return JSON-объект, представляющий здание
+ *
  * Формат:
- * {"x": 5, "y": 5, "w": 30, "h": 20} * где x, y - координаты верхнего левого угла, w, h - размеры */
+ * {"x": 5, "y": 5, "w": 30, "h": 20}
+ * где x, y - координаты верхнего левого угла, w, h - размеры
+ */
 boost::json::object SerializeBuilding(const model::Building& building);
 
 /**
  * @brief Сериализует офис в JSON-объект
  * @param office Объект офиса
- * @return JSON-объект, представляющий офис *
+ * @return JSON-объект, представляющий офис
+ *
  * Формат:
- * {"id": "o1", "x": 100, "y": 200, "offsetX": 5, "offsetY": 0} */
+ * {"id": "o1", "x": 100, "y": 200, "offsetX": 5, "offsetY": 0}
+ */
 boost::json::object SerializeOffice(const model::Office& office);
 
 /**
