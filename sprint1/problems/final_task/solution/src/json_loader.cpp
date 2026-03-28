@@ -8,8 +8,6 @@
 namespace json_loader {
 
 namespace json = boost::json;
-using boost::json::parse_error;
-using boost::json::key_access_error;
 
 /**
  * @brief Читает содержимое файла и возвращает его как строку.
