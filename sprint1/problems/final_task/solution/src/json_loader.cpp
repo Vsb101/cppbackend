@@ -142,18 +142,45 @@ model::Map ParseMap(const json::object& map_obj) {
  *   ]
  * }
  * @endcode
+ *
+ * @throw std::runtime_error если:
+ * - Не удалось прочитать файл
+ * - JSON имеет неверный формат
+ * - Отсутствует обязательное поле "maps"
+ * - Один из элементов массива maps не является объектом
  */
 model::Game LoadGame(const std::filesystem::path& json_path) {
-    std::string json_str = ReadFile(json_path);
-    auto value = json::parse(json_str);
-    const json::object& obj = value.as_object();
-    
-    model::Game game;
-    for (const auto& map_value : obj.at("maps").as_array()) {
-        game.AddMap(ParseMap(map_value.as_object()));
-    }
+    try {
+        std::string json_str = ReadFile(json_path);
+        auto value = json::parse(json_str);
+        const json::object& obj = value.as_object();
+        
+        // Проверка наличия обязательного поля "maps"
+        if (!obj.contains("maps")) {
+            throw std::runtime_error("Field 'maps' is missing in JSON config file");
+        }
+        
+        const json::array& maps_array = obj.at("maps").as_array();
+        model::Game game;
+        
+        // Парсим каждую карту
+        for (const auto& map_value : maps_array) {
+            if (!map_value.is_object()) {
+                throw std::runtime_error("Each element in 'maps' array must be a JSON object");
+            }
+            game.AddMap(ParseMap(map_value.as_object()));
+        }
 
-    return game;
+        return game;
+    // Теперь все поймаем 
+    } catch (const json::parse_error& e) {
+        throw std::runtime_error("JSON parse error in \"" + json_path.string() + "\": " + e.what());
+    } catch (const json::key_access_error& e) {
+        throw std::runtime_error("Missing required JSON field in \"" + json_path.string() + "\": " + e.what());
+    } catch (const std::exception& e) {
+        // Перехватываем остальные исключения (например, из ReadFile)
+        throw std::runtime_error(std::string("Error loading game config from \"") + json_path.string() + "\": " + e.what());
+    }
 }
 
 }  // namespace json_loader

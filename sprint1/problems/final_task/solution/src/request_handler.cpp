@@ -7,9 +7,73 @@ namespace http_handler {
 namespace json = boost::json;
 
 /**
+ * @brief Сериализует дорогу в JSON-объект
+ * @param road Объект дороги
+ * @return JSON-объект, представляющий дорогу
+ *
+ * Горизонтальная дорога:
+ * {"x0": 0, "y0": 0, "x1": 10}
+ *
+ * Вертикальная дорога:
+ * {"x0": 0, "y0": 0, "y1": 20}
+ */
+json::object SerializeRoad(const model::Road& road) {
+    json::object obj;
+    obj["x0"] = road.GetStart().x;
+    obj["y0"] = road.GetStart().y;
+    
+    if (road.IsHorizontal()) {
+        obj["x1"] = road.GetEnd().x;
+    } else {
+        obj["y1"] = road.GetEnd().y;
+    }
+    return obj;
+}
+
+/**
+ * @brief Сериализует здание в JSON-объект
+ * @param building Объект здания
+ * @return JSON-объект, представляющий здание
+ *
+ * Формат:
+ * {"x": 5, "y": 5, "w": 30, "h": 20}
+ * где x, y - координаты верхнего левого угла, w, h - размеры
+ */
+json::object SerializeBuilding(const model::Building& building) {
+    json::object obj;
+    const auto& bounds = building.GetBounds();
+    obj["x"] = bounds.position.x;
+    obj["y"] = bounds.position.y;
+    obj["w"] = bounds.size.width;
+    obj["h"] = bounds.size.height;
+    return obj;
+}
+
+/**
+ * @brief Сериализует офис в JSON-объект
+ * @param office Объект офиса
+ * @return JSON-объект, представляющий офис
+ *
+ * Формат:
+ * {"id": "o1", "x": 100, "y": 200, "offsetX": 5, "offsetY": 0}
+ */
+json::object SerializeOffice(const model::Office& office) {
+    json::object obj;
+    obj["id"] = *office.GetId();
+    obj["x"] = office.GetPosition().x;
+    obj["y"] = office.GetPosition().y;
+    obj["offsetX"] = office.GetOffset().dx;
+    obj["offsetY"] = office.GetOffset().dy;
+    return obj;
+}
+
+/**
  * @brief Сериализует карту в JSON-строку
  * @param map Карта для сериализации
  * @return JSON-строка со всеми полями: id, name, roads, buildings, offices
+ * 
+ * Использует отдельные функции сериализации для каждого типа объекта,
+ * что обеспечивает расширяемость и поддерживаемость.
  * 
  * Пример вывода:
  * @code
@@ -28,50 +92,24 @@ std::string MapToJson(const model::Map& map) {
     result["id"] = *map.GetId();
     result["name"] = map.GetName();
     
-    // Сериализуем дороги
-    // Пример:
-    // В памяти дорога — это объект с полями:
-    // Road road{{x0, y0}, {x1, y1}}  // начало и конец
-    // После сериализации в JSON:
-    // {"x0": 0, "y0": 0, "x1": 10}
+    // Сериализуем дороги с использованием вспомогательной функции
     json::array roads;
     for (const auto& road : map.GetRoads()) {
-        json::object road_obj;
-        road_obj["x0"] = road.GetStart().x;
-        road_obj["y0"] = road.GetStart().y;
-        
-        if (road.IsHorizontal()) {
-            road_obj["x1"] = road.GetEnd().x;
-        } else {
-            road_obj["y1"] = road.GetEnd().y;
-        }
-        roads.push_back(road_obj);
+        roads.push_back(SerializeRoad(road));
     }
     result["roads"] = roads;
     
-    // Сериализуем здания
+    // Сериализуем здания с использованием вспомогательной функции
     json::array buildings;
     for (const auto& building : map.GetBuildings()) {
-        json::object building_obj;
-        const auto& bounds = building.GetBounds();
-        building_obj["x"] = bounds.position.x;
-        building_obj["y"] = bounds.position.y;
-        building_obj["w"] = bounds.size.width;
-        building_obj["h"] = bounds.size.height;
-        buildings.push_back(building_obj);
+        buildings.push_back(SerializeBuilding(building));
     }
     result["buildings"] = buildings;
     
-    // Сериализуем офисы
+    // Сериализуем офисы с использованием вспомогательной функции
     json::array offices;
     for (const auto& office : map.GetOffices()) {
-        json::object office_obj;
-        office_obj["id"] = *office.GetId();
-        office_obj["x"] = office.GetPosition().x;
-        office_obj["y"] = office.GetPosition().y;
-        office_obj["offsetX"] = office.GetOffset().dx;
-        office_obj["offsetY"] = office.GetOffset().dy;
-        offices.push_back(office_obj);
+        offices.push_back(SerializeOffice(office));
     }
     result["offices"] = offices;
     
