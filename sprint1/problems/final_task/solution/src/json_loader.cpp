@@ -136,21 +136,9 @@ model::Map ParseMap(const json::object& map_obj) {
  * @param json_path Путь к JSON-файлу конфигурации
  * @return Объект Game с загруженными картами
  *
- * Ожидаемый формат:
- * @code
- * {
- *   "maps": [
- *     { "id": "map1", "name": "First", "roads": [...] },
- *     { "id": "map2", "name": "Second", "roads": [...] }
- *   ]
- * }
- * @endcode
+ * Ожидаемый формат: массив объектов в поле "maps"
  *
- * @throw std::runtime_error если:
- * - Не удалось прочитать файл
- * - JSON имеет неверный формат
- * - Отсутствует обязательное поле "maps"
- * - Один из элементов массива maps не является объектом
+ * @throw std::runtime_error при ошибках чтения/парсинга/формата
  */
 model::Game LoadGame(const std::filesystem::path& json_path) {
     try {
@@ -159,11 +147,12 @@ model::Game LoadGame(const std::filesystem::path& json_path) {
         const json::object& obj = value.as_object();
         
         // Проверка наличия обязательного поля "maps"
-        if (!obj.contains("maps")) {
+        auto it = obj.find("maps");
+        if (it == obj.end()) {
             throw std::runtime_error("Field 'maps' is missing in JSON config file");
         }
-        
-        const json::array& maps_array = obj.at("maps").as_array();
+
+        const json::array& maps_array = it->value().as_array();
         model::Game game;
         
         // Парсим каждую карту
@@ -175,14 +164,13 @@ model::Game LoadGame(const std::filesystem::path& json_path) {
         }
 
         return game;
-    // Теперь все поймаем 
-    } catch (const json::parse_error& e) {
-        throw std::runtime_error("JSON parse error in \"" + json_path.string() + "\": " + e.what());
-    } catch (const json::key_access_error& e) {
+
+    } catch (const std::out_of_range& e) {
         throw std::runtime_error("Missing required JSON field in \"" + json_path.string() + "\": " + e.what());
+    } catch (const std::invalid_argument& e) {
+        throw std::runtime_error("Invalid JSON value type in \"" + json_path.string() + "\": " + e.what());
     } catch (const std::exception& e) {
-        // Перехватываем остальные исключения (например, из ReadFile)
-        throw std::runtime_error(std::string("Error loading game config from \"") + json_path.string() + "\": " + e.what());
+        throw std::runtime_error("Error loading game config from \"" + json_path.string() + "\": " + e.what());
     }
 }
 
