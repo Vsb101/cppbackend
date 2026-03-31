@@ -144,10 +144,18 @@ void RequestHandler::HandleApiMaps(
     }
 }
 
+void RequestHandler::InvalidateCache() {
+    map_json_cache_.clear();
+    maps_list_cache_valid_ = false;
+}
+
 http::response<http::string_body> RequestHandler::HandleMapsList(
     const http::request<http::string_body>& req) {
-    std::string body = MapsListToJson(game_);
-    return MakeResponse(http::status::ok, body, "application/json", req);
+    if (!maps_list_cache_valid_) {
+        maps_list_json_ = MapsListToJson(game_);
+        maps_list_cache_valid_ = true;
+    }
+    return MakeResponse(http::status::ok, maps_list_json_, "application/json", req);
 }
 
 http::response<http::string_body> RequestHandler::HandleMapById(
@@ -163,8 +171,15 @@ http::response<http::string_body> RequestHandler::HandleMapById(
             req);
     }
 
-    std::string body = MapToJson(*map);
-    return MakeResponse(http::status::ok, body, "application/json", req);
+    // Проверяем кэш
+    std::string map_id_str(map_id);
+    auto it = map_json_cache_.find(map_id_str);
+    if (it == map_json_cache_.end()) {
+        // Кэшируем результат
+        it = map_json_cache_.emplace(map_id_str, MapToJson(*map)).first;
+    }
+    
+    return MakeResponse(http::status::ok, it->second, "application/json", req);
 }
 
 // === ОБРАБОТКА СТАТИКИ ===
@@ -200,29 +215,35 @@ std::string RequestHandler::GetMimeType(std::string_view path) {
 
 std::string RequestHandler::UrlDecode(std::string_view str) {
     std::string decoded;
-    decoded.reserve(str.size());  // заранее выделяем память
+    decoded.reserve(str.size());  // оптимизация: избегаем реаллокаций
 
-    // Вспомогательная лямбда: преобразует hex-символ в число
     auto from_hex = [](char c) -> int {
         if (c >= '0' && c <= '9') return c - '0';
         if (c >= 'a' && c <= 'f') return c - 'a' + 10;
         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        return 0;
+        return -1; // невалидный символ
     };
 
     for (size_t i = 0; i < str.size(); ++i) {
         char c = str[i];
         if (c == '+') {
-            decoded += ' ';  // '+' заменяется на пробел
+            decoded += ' ';
         } else if (c == '%' && i + 2 < str.size()) {
-            // %XX → байт
-            int hi = from_hex(str[++i]);
-            int lo = from_hex(str[++i]);
-            decoded += static_cast<char>((hi << 4) | lo);
+            // Читаем два следующих символа
+            int hi = from_hex(str[i + 1]);
+            int lo = from_hex(str[i + 2]);
+            if (hi != -1 && lo != -1) {
+                decoded += static_cast<char>((hi << 4) | lo);
+                i += 2; // пропускаем два символа после '%'
+                continue;
+            }
+            // Если hex-код некорректен — трактуем буквально
+            decoded += c;
         } else {
             decoded += c;
         }
     }
+
     return decoded;
 }
 

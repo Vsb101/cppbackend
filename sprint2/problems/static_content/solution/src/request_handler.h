@@ -93,6 +93,9 @@ public:
      */
     explicit RequestHandler(model::Game& game, const std::filesystem::path& static_files_root);
 
+    // Инвалидация кэша при изменении карт (если понадобится)
+    void InvalidateCache();
+
     // Запрещаем копирование — объект должен быть единственным
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
@@ -150,6 +153,11 @@ public:
 private:
     model::Game& game_;                    ///< Ссылка на модель игры
     std::filesystem::path static_files_root_;  ///< Корень статики (например, ./static)
+
+    // === КЭШИРОВАНИЕ ===
+    mutable std::unordered_map<std::string, std::string> map_json_cache_;
+    mutable std::string maps_list_json_;
+    mutable bool maps_list_cache_valid_ = false;
 
     /**
      * @brief Универсальный шаблон для создания HTTP-ответа.
