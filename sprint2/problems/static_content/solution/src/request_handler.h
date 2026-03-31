@@ -4,6 +4,7 @@
 #include "model.h"
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <filesystem>
 
