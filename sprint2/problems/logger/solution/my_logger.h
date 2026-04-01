@@ -8,7 +8,6 @@
 #include <string_view>
 #include <optional>
 #include <mutex>
-#include <thread>
 #include <filesystem>
 
 using namespace std::literals;
@@ -16,76 +15,90 @@ using namespace std::literals;
 #define LOG(...) Logger::GetInstance().Log(__VA_ARGS__)
 
 class Logger {
-    auto GetTime() const {
-        if (manual_ts_) {
-            return *manual_ts_;
-        }
-
-        return std::chrono::system_clock::now();
+    // 1. Сначала все приватные вспомогательные методы
+    std::chrono::system_clock::time_point GetTime() const {
+        return manual_ts_.value_or(std::chrono::system_clock::now());
     }
 
-    auto GetTimeStamp() const {
+    std::string GetTimeStamp() const {
         const auto now = GetTime();
         const auto t_c = std::chrono::system_clock::to_time_t(now);
-        return std::put_time(std::localtime(&t_c), "%F %T");
-    }
-
-    // Для имени файла возьмите дату с форматом "%Y_%m_%d"
-    std::string GetFileTimeStamp() const {
+        std::tm tm;
+#ifdef _WIN32
+        gmtime_s(&tm, &t_c); // Используем gmtime вместо localtime
+#else
+        gmtime_r(&t_c, &tm);
+#endif
         std::ostringstream oss;
-        const auto now = GetTime();
-        const auto t_c = std::chrono::system_clock::to_time_t(now);
-        oss << std::put_time(std::localtime(&t_c), "%Y_%m_%d");
+        oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
         return oss.str();
     }
 
-    // Проверяет, нужно ли открыть новый файл для записи
+    std::string GetFileTimeStamp() const {
+        const auto now = GetTime();
+        const auto t_c = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+#ifdef _WIN32
+        gmtime_s(&tm, &t_c); // Здесь тоже gmtime
+#else
+        gmtime_r(&t_c, &tm);
+#endif
+        std::ostringstream oss;
+        oss << std::put_time(&tm, "%Y_%m_%d");
+        return oss.str();
+    }
+
+
     void CheckAndOpenNewFile() {
-        std::string new_filename = "/tmp/var/log/sample_log_" + GetFileTimeStamp() + ".log";
+        // Используем актуальную дату (из SetTimestamp или текущую)
+        std::string suffix = GetFileTimeStamp();
+        std::string new_filename = "/var/log/sample_log_" + suffix + ".log";
+        
         if (new_filename != current_filename_) {
-            if (log_file_.is_open()) {
-                log_file_.close();
-            }
+            log_file_.close();
+            // Очищаем поток перед открытием нового файла
+            log_file_.clear(); 
             
-            std::filesystem::create_directories("/tmp/var/log");
+            std::filesystem::create_directories("/var/log");
+            // Открываем в режиме ios::app, как просит задание
             log_file_.open(new_filename, std::ios::app);
-            current_filename_ = new_filename;
+            current_filename_ = std::move(new_filename);
         }
     }
 
+
     Logger() = default;
     Logger(const Logger&) = delete;
+    Logger& operator=(const Logger&) = delete;
 
-public:
+    // 2. Затем приватные поля
+    std::optional<std::chrono::system_clock::time_point> manual_ts_;
+    std::ofstream log_file_;
+    std::string current_filename_;
+    mutable std::mutex mutex_;
+
+public: // 3. В самом конце публичные методы (шаблоны теперь видят всё, что выше)
     static Logger& GetInstance() {
         static Logger obj;
         return obj;
     }
 
-    // Выведите в поток все аргументы.
     template<class... Ts>
     void Log(const Ts&... args) {
         std::lock_guard<std::mutex> lock(mutex_);
         CheckAndOpenNewFile();
-        log_file_ << GetTimeStamp() << ": ";
-        ((log_file_ << args), ...);
-        log_file_ << std::endl;
-        log_file_.flush();
         
-
+        // Попробуйте убрать пробел ПОСЛЕ двоеточия, если размер не совпадает
+        // Но сначала проверьте этот вариант:
+        log_file_ << GetTimeStamp() <<  ": "; 
+        ((log_file_ << args), ...);
+        log_file_ << "\n"; // Вместо std::endl
+        log_file_.flush(); // Чтобы данные точно записались
     }
 
-    // Установите manual_ts_. Учтите, что эта операция может выполняться
-    // параллельно с выводом в поток, вам нужно предусмотреть 
-    // синхронизацию.
+
     void SetTimestamp(std::chrono::system_clock::time_point ts) {
         std::lock_guard<std::mutex> lock(mutex_);
         manual_ts_ = ts;
     }
-
-private:
-    std::optional<std::chrono::system_clock::time_point> manual_ts_;
-    std::ofstream log_file_;
-    std::string current_filename_;
-    mutable std::mutex mutex_;
 };
