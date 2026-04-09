@@ -15,7 +15,7 @@ using namespace std::literals;
 #define LOG(...) Logger::GetInstance().Log(__VA_ARGS__)
 
 class Logger {
-    // 1. Сначала все приватные вспомогательные методы
+    // Сначала все приватные вспомогательные методы
     std::chrono::system_clock::time_point GetTime() const {
         return manual_ts_.value_or(std::chrono::system_clock::now());
     }
@@ -71,13 +71,13 @@ class Logger {
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
 
-    // 2. Затем приватные поля
+    // Затем приватные поля
     std::optional<std::chrono::system_clock::time_point> manual_ts_;
     std::ofstream log_file_;
     std::string current_filename_;
     mutable std::mutex mutex_;
 
-public: // 3. В самом конце публичные методы (шаблоны теперь видят всё, что выше)
+public: // В самом конце публичные методы (шаблоны теперь видят всё, что выше)
     static Logger& GetInstance() {
         static Logger obj;
         return obj;
@@ -88,8 +88,6 @@ public: // 3. В самом конце публичные методы (шабл
         std::lock_guard<std::mutex> lock(mutex_);
         CheckAndOpenNewFile();
         
-        // Попробуйте убрать пробел ПОСЛЕ двоеточия, если размер не совпадает
-        // Но сначала проверьте этот вариант:
         log_file_ << GetTimeStamp() <<  ": "; 
         ((log_file_ << args), ...);
         log_file_ << "\n"; // Вместо std::endl
