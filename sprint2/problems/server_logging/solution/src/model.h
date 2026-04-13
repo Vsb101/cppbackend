@@ -12,14 +12,6 @@ using Dimension = int;
 /// Тип для координатной точки (alias для Dimension)
 using Coord = Dimension;
 
-namespace detail {
-struct PlayerTag {};
-struct TokenTag {};
-}  // namespace detail
-
-using PlayerId = util::Tagged<size_t, detail::PlayerTag>;
-using Token = util::Tagged<std::string, detail::TokenTag>;
-
 //=============================================================================
 // Базовые структуры
 //=============================================================================
@@ -302,21 +294,7 @@ private:
  * Позволяет добавлять карты и искать их по идентификатору.
  */
 class Game {
-private:
-    // Список игроков, добавленных на карты
-    std::vector<Player> players_;
-    // Генератор токенов и хранение соответствия токен-игрок
-    PlayerTokens player_tokens_;
-
 public:
-    // Добавить игрока на карту
-    Player* AddPlayer(const std::string& name, const Map::Id& map_id);
-    // Найти игрока по токену
-    Player* FindPlayer(const Token& token);
-    // Получить токены игроков
-    PlayerTokens& GetPlayerTokens() { return player_tokens_; }
-    const PlayerTokens& GetPlayerTokens() const { return player_tokens_; }
-
     /// Контейнер для хранения карт
     using Maps = std::vector<Map>;
 

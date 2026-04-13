@@ -34,23 +34,4 @@ void Game::AddMap(Map map) {
     }
 }
 
-Player* Game::AddPlayer(const std::string& name, const Map::Id& map_id) {
-    const Map* map = FindMap(map_id);
-    if (!map) {
-        return nullptr; // карта не найдена
-    }
-    // Создаём игрока с уникальным id
-    PlayerId id(players_.size());
-    players_.emplace_back(id, name, map);
-    Player* player = &players_.back();
-    // Генерируем токен и связываем с игроком
-    Token token = player_tokens_.GenerateToken();
-    player_tokens_.AddPlayer(token, player);
-    return player;
-}
-
-Player* Game::FindPlayer(const Token& token) {
-    return player_tokens_.FindPlayerByToken(token);
-}
-
 }  // namespace model
