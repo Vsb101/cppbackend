@@ -259,10 +259,10 @@ public:
      * @brief Конструктор игрока
      * @param id Уникальный идентификатор игрока
      * @param token Токен для аутентификации
-     * @param dog Указатель на пса, которым управляет игрок
+     * @param dog_index Индекс пса в контейнере dogs_
      */
-    Player(Id id, Token token, Dog* dog) noexcept
-        : id_(id), token_(std::move(token)), dog_(dog) {}
+    Player(Id id, Token token, size_t dog_index) noexcept
+        : id_(id), token_(std::move(token)), dog_index_(dog_index) {}
 
     /// @return Идентификатор игрока
     Id GetId() const noexcept { return id_; }
@@ -270,13 +270,13 @@ public:
     /// @return Токен игрока
     const Token& GetToken() const noexcept { return token_; }
 
-    /// @return Указатель на пса
-    Dog* GetDog() const noexcept { return dog_; }
+    /// @return Индекс пса
+    size_t GetDogIndex() const noexcept { return dog_index_; }
 
 private:
     Id id_;                    ///< Идентификатор игрока
     Token token_;               ///< Токен аутентификации
-    Dog* dog_ = nullptr;        ///< Указатель на пса
+    size_t dog_index_;          ///< Индекс пса в контейнере dogs_
 };
 
 //=============================================================================
@@ -307,8 +307,8 @@ public:
      * @brief Добавляет игрока в сессию
      * @param player Игрока для добавления
      */
-    void AddPlayer(Player player) {
-        players_.emplace_back(std::move(player));
+    void AddPlayer(const Player& player) {
+        players_.emplace_back(player);
     }
 
 private:
@@ -472,22 +472,22 @@ public:
      * @brief Создаёт нового пса
      * @param name Имя пса
      * @param map Указатель на карту, где появится пёс
-     * @return Указатель на созданного пса
+     * @return Индекс созданного пса в контейнере dogs_
      */
-    Dog* CreateDog(std::string name, const Map* map) {
+    size_t CreateDog(std::string name, const Map* map) {
         dogs_.emplace_back(std::move(name), map);
-        return &dogs_.back();
+        return dogs_.size() - 1;
     }
 
     /**
      * @brief Создаёт нового игрока
      * @param id Идентификатор игрока
      * @param token Токен аутентификации
-     * @param dog Указатель на пса, которым управляет игрок
+     * @param dog_index Индекс пса в контейнере dogs_
      * @return Указатель на созданного игрока
      */
-    Player* CreatePlayer(Player::Id id, Player::Token token, Dog* dog) {
-        players_.emplace_back(id, std::move(token), dog);
+    Player* CreatePlayer(Player::Id id, Player::Token token, size_t dog_index) {
+        players_.emplace_back(id, std::move(token), dog_index);
         return &players_.back();
     }
 
@@ -507,6 +507,11 @@ public:
     /// @return Количество игроков
     size_t GetPlayersCount() const noexcept {
         return players_.size();
+    }
+
+    /// @return Указатель на пса по индексу
+    const Dog* GetDog(size_t index) const noexcept {
+        return &dogs_.at(index);
     }
 
 private:

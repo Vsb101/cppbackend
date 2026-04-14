@@ -143,12 +143,16 @@ void RequestHandler::HandleJoinGame(
         
         switch (result.result) {
             case JoinResult::SUCCESS: {
-                json::object response_body;
-                response_body["playerId"] = static_cast<int>(result.player_id.GetValue());
-                response_body["authToken"] = result.auth_token;
-                
-                std::string response_str = json::serialize(response_body);
-                send(MakeResponse(http::status::ok, response_str, "application/json", req));
+                try {
+                    json::object response_body;
+                    response_body["playerId"] = static_cast<int>(result.player_id.GetValue());
+                    response_body["authToken"] = result.auth_token;
+                    
+                    std::string response_str = json::serialize(response_body);
+                    send(MakeResponse(http::status::ok, response_str, "application/json", req));
+                } catch (const std::exception&) {
+                    send(MakeApiErrorResponse(req, ApiError::INVALID_ARGUMENT));
+                }
                 break;
             }
             case JoinResult::MAP_NOT_FOUND: {
@@ -210,15 +214,15 @@ JoinGameResult RequestHandler::JoinGame(std::string user_name, std::string map_i
     }
     
     // Создание пса
-    model::Dog* dog = game_.CreateDog(std::move(user_name), map);
+    size_t dog_index = game_.CreateDog(user_name, map);
     
     // Генерация ID игрока (просто количество игроков)
     model::Player::Id player_id{static_cast<int>(game_.GetPlayersCount())};
     
     // Создание игрока
-    model::Player* player = game_.CreatePlayer(player_id, std::move(token), dog);
+    model::Player* player = game_.CreatePlayer(player_id, token, dog_index);
     
-    // Создание сессии, если еще нет
+    // Поиск или создание сессии
     model::GameSession* session = game_.FindSession(map);
     if (!session) {
         session = &game_.CreateSession(map);
@@ -300,25 +304,34 @@ void RequestHandler::HandleGetPlayers(
         return;
     }
     
-    // Получение сессии
-    model::Dog* dog = player->GetDog();
-    model::GameSession* session = game_.FindSession(dog->GetMap());
-    if (!session) {
-        // Это маловероятно, но на всякий случай
+    try {
+        // Получение сессии
+        const model::Dog* dog = game_.GetDog(player->GetDogIndex());
+        if (!dog) {
+            send(MakeApiErrorResponse(req, ApiError::BAD_REQUEST));
+            return;
+        }
+
+        model::GameSession* session = game_.FindSession(dog->GetMap());
+        if (!session) {
+            // Создаём сессию если не найдена
+            session = &game_.CreateSession(dog->GetMap());
+        }
+
+        // Формирование ответа
+        json::object response_body;
+        for (const model::Player& p : session->GetPlayers()) {
+            json::object player_info;
+            const model::Dog* p_dog = game_.GetDog(p.GetDogIndex());
+            player_info["name"] = p_dog->GetName();
+            response_body[std::to_string(static_cast<int>(p.GetId().GetValue()))] = std::move(player_info);
+        }
+
+        std::string response_str = json::serialize(response_body);
+        send(MakeResponse(http::status::ok, response_str, "application/json", req));
+    } catch (const std::exception&) {
         send(MakeApiErrorResponse(req, ApiError::BAD_REQUEST));
-        return;
     }
-    
-    // Формирование ответа
-    json::object response_body;
-    for (const model::Player& p : session->GetPlayers()) {
-        json::object player_info;
-        player_info["name"] = p.GetDog()->GetName();
-        response_body[std::to_string(static_cast<int>(p.GetId().GetValue()))] = std::move(player_info);
-    }
-    
-    std::string response_str = json::serialize(response_body);
-    send(MakeResponse(http::status::ok, response_str, "application/json", req));
 }
 
 // === СТАТИЧЕСКИЕ ФАЙЛЫ ===
