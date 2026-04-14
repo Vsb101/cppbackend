@@ -1,5 +1,10 @@
 #include "request_handler.h"
 #include "json_builder.h"
+#include <boost/json.hpp>
+#include <boost/algorithm/string.hpp>
+#include <random>
+#include <sstream>
+#include <iomanip>
 
 #include <boost/asio/dispatch.hpp>
 #include <boost/beast/core.hpp>
@@ -77,6 +82,243 @@ http::response<http::string_body> RequestHandler::HandleMapById(
     }
 
     return MakeResponse(http::status::ok, it->second, "application/json", req);
+}
+
+// === ВХОД В ИГРУ ===
+
+void RequestHandler::HandleJoinGame(
+    http::request<http::string_body>&& req,
+    std::function<void(http::response<http::string_body>&&)>&& send) {
+    // Проверка метода - только POST
+    if (req.method() != http::verb::post) {
+        auto response = MakeApiErrorResponse(req, ApiError::INVALID_METHOD);
+        response.set(http::field::allow, "POST");
+        send(std::move(response));
+        return;
+    }
+    
+    // Проверка Content-Type
+    auto content_type_it = req.find(http::field::content_type);
+    if (content_type_it == req.end() ||
+        !boost::algorithm::iequals(content_type_it->value(), "application/json")) {
+        send(MakeApiErrorResponse(req, ApiError::BAD_REQUEST));
+        return;
+    }
+    
+    // Парсинг JSON
+    try {
+        json::value json_body = json::parse(req.body());
+        
+        // Проверка наличия обязательных полей
+        if (!json_body.is_object()) {
+            send(MakeApiErrorResponse(req, ApiError::INVALID_ARGUMENT));
+            return;
+        }
+
+        const json::object& obj = json_body.as_object();
+        
+        auto user_name_it = obj.find("userName");
+        if (user_name_it == obj.end() || !user_name_it->value().is_string()) {
+            send(MakeApiErrorResponse(req, ApiError::INVALID_ARGUMENT));
+            return;
+        }
+
+        auto map_id_it = obj.find("mapId");
+        if (map_id_it == obj.end() || !map_id_it->value().is_string()) {
+            send(MakeApiErrorResponse(req, ApiError::INVALID_ARGUMENT));
+            return;
+        }
+
+        std::string user_name = std::string(user_name_it->value().as_string());
+        std::string map_id = std::string(map_id_it->value().as_string());
+        
+        // Проверка имени
+        if (user_name.empty()) {
+            send(MakeApiErrorResponse(req, ApiError::INVALID_ARGUMENT));
+            return;
+        }
+        
+        // Обработка входа в игру
+        JoinGameResult result = JoinGame(user_name, map_id);
+        
+        switch (result.result) {
+            case JoinResult::SUCCESS: {
+                json::object response_body;
+                response_body["playerId"] = static_cast<int>(result.player_id.GetValue());
+                response_body["authToken"] = result.auth_token;
+                
+                std::string response_str = json::serialize(response_body);
+                send(MakeResponse(http::status::ok, response_str, "application/json", req));
+                break;
+            }
+            case JoinResult::MAP_NOT_FOUND: {
+                send(MakeApiErrorResponse(req, ApiError::MAP_NOT_FOUND));
+                break;
+            }
+            case JoinResult::INVALID_NAME: {
+                // Создаем кастомный объект ошибки с нужным сообщением
+                json::object error_body;
+                error_body["code"] = "invalidArgument";
+                error_body["message"] = "Invalid name";
+                
+                std::string error_str = json::serialize(error_body);
+                auto response = MakeResponse(http::status::bad_request, error_str, "application/json", req);
+                response.set(http::field::cache_control, "no-cache");
+                send(std::move(response));
+                break;
+            }
+            case JoinResult::PARSE_ERROR: {
+                // Создаем кастомный объект ошибки с нужным сообщением
+                json::object error_body;
+                error_body["code"] = "invalidArgument";
+                error_body["message"] = "Join game request parse error";
+                
+                std::string error_str = json::serialize(error_body);
+                auto response = MakeResponse(http::status::bad_request, error_str, "application/json", req);
+                response.set(http::field::cache_control, "no-cache");
+                send(std::move(response));
+                break;
+            }
+        }
+        
+    } catch (const std::exception&) {
+        send(MakeApiErrorResponse(req, ApiError::INVALID_ARGUMENT));
+    }
+}
+
+JoinGameResult RequestHandler::JoinGame(std::string user_name, std::string map_id) {
+    // Поиск карты
+    const model::Map* map = game_.FindMap(model::Map::Id{map_id});
+    if (!map) {
+        return {JoinResult::MAP_NOT_FOUND, model::Player::Id{}, model::Player::Token{}};
+    }
+    
+    // Проверка имени
+    if (user_name.empty()) {
+        return {JoinResult::INVALID_NAME, model::Player::Id{}, model::Player::Token{}};
+    }
+    
+    // Генерация токена
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    static std::uniform_int_distribution<> dis(0, 15);
+    
+    std::string token;
+    token.reserve(32);
+    for (int i = 0; i < 32; ++i) {
+        token += "0123456789abcdef"[dis(gen)];
+    }
+    
+    // Создание пса
+    model::Dog* dog = game_.CreateDog(std::move(user_name), map);
+    
+    // Генерация ID игрока (просто количество игроков)
+    model::Player::Id player_id{static_cast<int>(game_.GetPlayersCount())};
+    
+    // Создание игрока
+    model::Player* player = game_.CreatePlayer(player_id, std::move(token), dog);
+    
+    // Создание сессии, если еще нет
+    model::GameSession* session = game_.FindSession(map);
+    if (!session) {
+        session = &game_.CreateSession(map);
+    }
+    
+    // Добавление игрока в сессию
+    session->AddPlayer(*player);
+    
+    return {JoinResult::SUCCESS, player_id, player->GetToken()};
+}
+
+// === ПОЛУЧЕНИЕ СПИСКА ИГРОКОВ ===
+
+void RequestHandler::HandleGetPlayers(
+    http::request<http::string_body>&& req,
+    std::function<void(http::response<http::string_body>&&)>&& send) {
+    // Проверка метода - только GET, HEAD
+    if (req.method() != http::verb::get && req.method() != http::verb::head) {
+        auto response = MakeApiErrorResponse(req, ApiError::INVALID_METHOD);
+        response.set(http::field::allow, "GET, HEAD");
+        send(std::move(response));
+        return;
+    }
+    
+    // Проверка заголовка Authorization
+    auto auth_it = req.find(http::field::authorization);
+    if (auth_it == req.end()) {
+        json::object error_body;
+        error_body["code"] = "invalidToken";
+        error_body["message"] = "Authorization header is missing";
+        
+        std::string error_str = json::serialize(error_body);
+        auto response = MakeResponse(http::status::unauthorized, error_str, "application/json", req);
+        response.set(http::field::cache_control, "no-cache");
+        send(std::move(response));
+        return;
+    }
+    
+    // Извлечение токена
+    std::string auth_header = std::string(auth_it->value());
+    const std::string prefix = "Bearer ";
+    std::string token;
+    if (auth_header.size() > prefix.size() && auth_header.substr(0, prefix.size()) == prefix) {
+        token = auth_header.substr(prefix.size());
+        if (token.empty()) {
+            json::object error_body;
+            error_body["code"] = "invalidToken";
+            error_body["message"] = "Invalid token";
+            
+            std::string error_str = json::serialize(error_body);
+            auto response = MakeResponse(http::status::unauthorized, error_str, "application/json", req);
+            response.set(http::field::cache_control, "no-cache");
+            send(std::move(response));
+            return;
+        }
+    } else {
+        json::object error_body;
+        error_body["code"] = "invalidToken";
+        error_body["message"] = "Invalid token";
+
+        std::string error_str = json::serialize(error_body);
+        auto response = MakeResponse(http::status::unauthorized, error_str, "application/json", req);
+        response.set(http::field::cache_control, "no-cache");
+        send(std::move(response));
+        return;
+    }
+    
+    // Поиск игрока по токену
+    model::Player* player = game_.FindPlayerByToken(token);
+    if (!player) {
+        json::object error_body;
+        error_body["code"] = "unknownToken";
+        error_body["message"] = "Player token has not been found";
+        
+        std::string error_str = json::serialize(error_body);
+        auto response = MakeResponse(http::status::unauthorized, error_str, "application/json", req);
+        response.set(http::field::cache_control, "no-cache");
+        send(std::move(response));
+        return;
+    }
+    
+    // Получение сессии
+    model::Dog* dog = player->GetDog();
+    model::GameSession* session = game_.FindSession(dog->GetMap());
+    if (!session) {
+        // Это маловероятно, но на всякий случай
+        send(MakeApiErrorResponse(req, ApiError::BAD_REQUEST));
+        return;
+    }
+    
+    // Формирование ответа
+    json::object response_body;
+    for (const model::Player& p : session->GetPlayers()) {
+        json::object player_info;
+        player_info["name"] = p.GetDog()->GetName();
+        response_body[std::to_string(static_cast<int>(p.GetId().GetValue()))] = std::move(player_info);
+    }
+    
+    std::string response_str = json::serialize(response_body);
+    send(MakeResponse(http::status::ok, response_str, "application/json", req));
 }
 
 // === СТАТИЧЕСКИЕ ФАЙЛЫ ===
@@ -229,6 +471,7 @@ http::response<http::string_body> RequestHandler::MakeResponse(
     response.result(status);
     response.set(http::field::content_type, content_type);
     response.content_length(body.size());
+    response.set(http::field::cache_control, "no-cache");
     response.keep_alive(req.keep_alive());
 
     if (req.method() != http::verb::head) {
@@ -261,11 +504,22 @@ template http::response<http::string_body> RequestHandler::MakeApiErrorResponse(
 
 template<typename Body>
 http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(
-    const http::request<Body>& req) {
+    const http::request<Body>& req, std::string_view allowed_methods) {
     auto response = MakeApiErrorResponse(req, ApiError::METHOD_NOT_ALLOWED);
-    response.set(http::field::allow, "GET, HEAD");
+    response.set(http::field::allow, allowed_methods);
     return response;
 }
+
+template<typename Body>
+http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(
+    const http::request<Body>& req) {
+    auto response = MakeApiErrorResponse(req, ApiError::METHOD_NOT_ALLOWED);
+    response.set(http::field::allow, "GET, HEAD, POST");
+    return response;
+}
+
+template http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(
+    const http::request<http::string_body>&, std::string_view);
 
 template http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(
     const http::request<http::string_body>&);

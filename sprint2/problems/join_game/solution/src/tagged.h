@@ -31,6 +31,9 @@ public:
     using ValueType = Value;
     using TagType = Tag;
 
+    Tagged()
+        : value_{} {
+    }
     explicit Tagged(Value&& v)
         : value_(std::move(v)) {
     }
@@ -43,6 +46,14 @@ public:
     }
 
     Value& operator*() {
+        return value_;
+    }
+
+    const Value& GetValue() const {
+        return value_;
+    }
+
+    Value& GetValue() {
         return value_;
     }
 

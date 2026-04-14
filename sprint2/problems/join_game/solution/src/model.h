@@ -7,7 +7,10 @@
 
 namespace model {
 
-/// Тип для координат и размеров (целочисленные значения)
+// Предварительное объявление классов для разрешения циклических зависимостей
+class Map;
+
+/// Тип для коо��динат и размеров (целочисленные значения)
 using Dimension = int;
 /// Тип для координатной точки (alias для Dimension)
 using Coord = Dimension;
@@ -201,6 +204,119 @@ private:
 };
 
 //=============================================================================
+// Dog - пёс на карте
+//=============================================================================
+
+/**
+ * @class Dog
+ * @brief Представляет пса (игровой объект) на карте.
+ *
+ * Пёс имеет имя (userName) и находится на определённой карте.
+ */
+class Dog {
+public:
+    /// Тип идентификатора пса (строка с тегом)
+    using Id = util::Tagged<std::string, Dog>;
+
+    /**
+     * @brief Конструктор пса
+     * @param name Имя пса (совпадает с именем игрока)
+     * @param map Указатель на карту, где находится пёс
+     */
+    Dog(std::string name, const Map* map) noexcept
+        : name_(std::move(name)), map_(map) {}
+
+    /// @return Имя пса
+    const std::string& GetName() const noexcept { return name_; }
+
+    /// @return Указатель на карту, где находится пёс
+    const Map* GetMap() const noexcept { return map_; }
+
+private:
+    std::string name_;       ///< Имя пса
+    const Map* map_ = nullptr;  ///< Указатель на карту
+};
+
+//=============================================================================
+// Player - игрок, управляющий псом
+//=============================================================================
+
+/**
+ * @class Player
+ * @brief Представляет игрока в игре.
+ *
+ * Игрок управляется пользователем через токен и имеет уникальный идентификатор.
+ */
+class Player {
+public:
+    /// Тип идентификатора игрока (целое число с тегом)
+    using Id = util::Tagged<int, Player>;
+
+    /// Тип токена аутентификации (строка)
+    using Token = std::string;
+
+    /**
+     * @brief Конструктор игрока
+     * @param id Уникальный идентификатор игрока
+     * @param token Токен для аутентификации
+     * @param dog Указатель на пса, которым управляет игрок
+     */
+    Player(Id id, Token token, Dog* dog) noexcept
+        : id_(id), token_(std::move(token)), dog_(dog) {}
+
+    /// @return Идентификатор игрока
+    Id GetId() const noexcept { return id_; }
+
+    /// @return Токен игрока
+    const Token& GetToken() const noexcept { return token_; }
+
+    /// @return Указатель на пса
+    Dog* GetDog() const noexcept { return dog_; }
+
+private:
+    Id id_;                    ///< Идентификатор игрока
+    Token token_;               ///< Токен аутентификации
+    Dog* dog_ = nullptr;        ///< Указатель на пса
+};
+
+//=============================================================================
+// GameSession - игровая сессия на одной карте
+//=============================================================================
+
+/**
+ * @class GameSession
+ * @brief Представляет игровую сессию на определённой карте.
+ *
+ * Содержит всех игроков и собак, находящихся на одной карте.
+ */
+class GameSession {
+public:
+    /**
+     * @brief Конструктор сессии
+     * @param map Указатель на карту сессии
+     */
+    explicit GameSession(const Map* map) noexcept : map_(map) {}
+
+    /// @return Указатель на карту сессии
+    const Map* GetMap() const noexcept { return map_; }
+
+    /// @return Список всех игроков в сессии
+    const std::vector<Player>& GetPlayers() const noexcept { return players_; }
+
+    /**
+     * @brief Добавляет игрока в сессию
+     * @param player Игрока для добавления
+     */
+    void AddPlayer(Player player) {
+        players_.emplace_back(std::move(player));
+    }
+
+private:
+    const Map* map_ = nullptr;           ///< Указатель на карту
+    std::vector<Player> players_;         ///< Список игроков
+};
+
+//=============================================================================
 // Map - игровая карта
 //=============================================================================
 
@@ -288,15 +404,22 @@ private:
 
 /**
  * @class Game
- * @brief Представляет игру - коллекцию карт.
+ * @brief Представляет игру - коллекцию карт и сессий.
  *
- * Является фасадом для доступа к картам игры.
- * Позволяет добавлять карты и искать их по идентификатору.
+ * Является фасадом для доступа к картам и игровым сессиям.
+ * Позволяет добавлять карты, искать их по идентификатору,
+ * создавать сессии и управлять игроками.
  */
 class Game {
 public:
     /// Контейнер для хранения карт
     using Maps = std::vector<Map>;
+    /// Контейнер для хранения игровых сессий
+    using Sessions = std::vector<GameSession>;
+    /// Контейнер для хранения всех собак
+    using Dogs = std::vector<Dog>;
+    /// Контейнер для хранения всех игроков
+    using Players = std::vector<Player>;
 
     /**
      * @brief Добавляет карту в игру
@@ -322,6 +445,70 @@ public:
         return nullptr;
     }
 
+    /**
+     * @brief Создаёт новую сессию на карте
+     * @param map Указатель на карту для сессии
+     * @return Ссылка на созданную сессию
+     */
+    GameSession& CreateSession(const Map* map) {
+        sessions_.emplace_back(map);
+        return sessions_.back();
+    }
+
+    /**
+     * @brief Находит сессию по карте
+     * @param map Указатель на карту
+     * @return Указатель на сессию или nullptr, если не найдена
+     */
+    GameSession* FindSession(const Map* map) noexcept {
+        auto it = std::find_if(sessions_.begin(), sessions_.end(),
+                              [map](const GameSession& session) {
+                                  return session.GetMap() == map;
+                              });
+        return it != sessions_.end() ? &(*it) : nullptr;
+    }
+
+    /**
+     * @brief Создаёт нового пса
+     * @param name Имя пса
+     * @param map Указатель на карту, где появится пёс
+     * @return Указатель на созданного пса
+     */
+    Dog* CreateDog(std::string name, const Map* map) {
+        dogs_.emplace_back(std::move(name), map);
+        return &dogs_.back();
+    }
+
+    /**
+     * @brief Создаёт нового игрока
+     * @param id Идентификатор игрока
+     * @param token Токен аутентификации
+     * @param dog Указатель на пса, которым управляет игрок
+     * @return Указатель на созданного игрока
+     */
+    Player* CreatePlayer(Player::Id id, Player::Token token, Dog* dog) {
+        players_.emplace_back(id, std::move(token), dog);
+        return &players_.back();
+    }
+
+    /**
+     * @brief Находит игрока по токену
+     * @param token Токен игрока
+     * @return Указатель на игрока или nullptr, если не найден
+     */
+    Player* FindPlayerByToken(const std::string& token) noexcept {
+        auto it = std::find_if(players_.begin(), players_.end(),
+                              [&token](const Player& player) {
+                                  return player.GetToken() == token;
+                              });
+        return it != players_.end() ? &(*it) : nullptr;
+    }
+
+    /// @return Количество игроков
+    size_t GetPlayersCount() const noexcept {
+        return players_.size();
+    }
+
 private:
     /// Хешер для идентификатора карты
     using MapIdHasher = util::TaggedHasher<Map::Id>;
@@ -330,6 +517,9 @@ private:
 
     std::vector<Map> maps_;        ///< Все карты игры
     MapIdToIndex map_id_to_index_; ///< Индекс карт для быстрого поиска
+    std::vector<GameSession> sessions_;  ///< Все игровые сессии
+    std::vector<Dog> dogs_;              ///< Все собаки в игре
+    std::vector<Player> players_;        ///< Все игроки в игре
 };
 
 }  // namespace model

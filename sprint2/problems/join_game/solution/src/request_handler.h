@@ -24,8 +24,12 @@ namespace http = beast::http;
 enum class ApiError {
     BAD_REQUEST,        ///< Некорректный запрос (400)
     METHOD_NOT_ALLOWED, ///< Метод не поддерживается (405)
+    INVALID_METHOD,     ///< Неправильный метод для эндпоинта (400)
     MAP_NOT_FOUND,      ///< Карта не найдена (404)
-    FILE_NOT_FOUND      ///< Файл не найден (404)
+    FILE_NOT_FOUND,     ///< Файл не найден (404)
+    INVALID_ARGUMENT,   ///< Некорректный аргумент (400)
+    INVALID_TOKEN,      ///< Некорректный токен (401)
+    UNKNOWN_TOKEN       ///< Неизвестный токен (401)
 };
 
 namespace detail {
@@ -37,11 +41,15 @@ struct ApiErrorInfo {
 };
 
 // Таблица соответствия enum → статус, код, сообщение
-constexpr std::array<ApiErrorInfo, 4> api_errors = {{
+constexpr std::array<ApiErrorInfo, 8> api_errors = {{
     {http::status::bad_request,        "badRequest",        "Bad request"},
     {http::status::method_not_allowed, "methodNotAllowed",  "Method not allowed"},
+    {http::status::method_not_allowed, "invalidMethod",     "Invalid method"},
     {http::status::not_found,          "mapNotFound",       "Map not found"},
     {http::status::not_found,          "fileNotFound",      "File not found"},
+    {http::status::bad_request,        "invalidArgument",   "Invalid argument"},
+    {http::status::unauthorized,       "invalidToken",      "Invalid token"},
+    {http::status::unauthorized,       "unknownToken",      "Unknown token"}
 }};
 
 /**
@@ -54,10 +62,37 @@ inline const ApiErrorInfo& GetErrorInfo(ApiError error) {
 // Проверка согласованности enum и таблицы
 static_assert(static_cast<size_t>(ApiError::BAD_REQUEST) == 0);
 static_assert(static_cast<size_t>(ApiError::METHOD_NOT_ALLOWED) == 1);
-static_assert(static_cast<size_t>(ApiError::MAP_NOT_FOUND) == 2);
-static_assert(static_cast<size_t>(ApiError::FILE_NOT_FOUND) == 3);
+static_assert(static_cast<size_t>(ApiError::INVALID_METHOD) == 2);
+static_assert(static_cast<size_t>(ApiError::MAP_NOT_FOUND) == 3);
+static_assert(static_cast<size_t>(ApiError::FILE_NOT_FOUND) == 4);
+static_assert(static_cast<size_t>(ApiError::INVALID_ARGUMENT) == 5);
+static_assert(static_cast<size_t>(ApiError::INVALID_TOKEN) == 6);
+static_assert(static_cast<size_t>(ApiError::UNKNOWN_TOKEN) == 7);
 
 } // namespace detail
+
+// === КОДЫ ИГРОВЫХ ОПЕРАЦИЙ ===
+
+/**
+ * @brief Перечисление результатов операций игры.
+ */
+enum class JoinResult {
+    SUCCESS,
+    MAP_NOT_FOUND,
+    INVALID_NAME,
+    PARSE_ERROR
+};
+
+// === ТИПЫ ДЛЯ ИГРОВЫХ ОПЕРАЦИЙ ===
+
+/**
+ * @brief Результат входа в игру.
+ */
+struct JoinGameResult {
+    JoinResult result;
+    model::Player::Id player_id;
+    model::Player::Token auth_token;
+};
 
 /**
  * @class RequestHandler
@@ -67,7 +102,7 @@ static_assert(static_cast<size_t>(ApiError::FILE_NOT_FOUND) == 3);
  * - API-эндпоинты (/api/...) → возвращают JSON-данные
  * - Статические файлы (/, /css/style.css) → раздаются как файлы
  *
- * Поддерживаемые методы: GET, HEAD. Остальные — 405 Method Not Allowed.
+ * Поддерживаемые методы: GET, HEAD, POST. Остальные — 405 Method Not Allowed.
  *
  * Особенности:
  * - Владеет ссылкой на model::Game — единственный источник данных.
@@ -117,15 +152,17 @@ public:
             target = target.substr(1);  // убираем начальный '/'
         }
 
-        // Поддерживаем только GET и HEAD
-        if (req.method() != http::verb::get && req.method() != http::verb::head) {
-            send(MakeMethodNotAllowedResponse(req));
-            return;
-        }
-
         // API: /api/v1/maps
         if (target.rfind("api/v1/maps", 0) == 0) {
             HandleApiMaps(std::move(req), std::forward<Send>(send), target.substr(11));
+        }
+        // API: /api/v1/game/join
+        else if (target == "api/v1/game/join") {
+            HandleJoinGame(std::move(req), std::forward<Send>(send));
+        }
+        // API: /api/v1/game/players
+        else if (target == "api/v1/game/players") {
+            HandleGetPlayers(std::move(req), std::forward<Send>(send));
         }
         // Другие API-пути — запрещены
         else if (target.rfind("api/", 0) == 0) {
@@ -188,7 +225,21 @@ private:
     /**
      * @brief Создаёт ответ 405 Method Not Allowed.
      *
-     * Добавляет заголовок Allow: GET, HEAD.
+     * Добавляет заголовок Allow с указанными методами.
+     *
+     * @tparam Body Тип тела запроса
+     * @param req Исходный запрос
+     * @param allowed_methods Строка с разрешёнными методами (например, "GET, HEAD")
+     * @return HTTP-ответ с ошибкой
+     */
+    template<typename Body>
+    http::response<http::string_body> MakeMethodNotAllowedResponse(
+        const http::request<Body>& req, std::string_view allowed_methods);
+
+    /**
+     * @brief Создаёт ответ 405 Method Not Allowed.
+     *
+     * Добавляет заголовок Allow: GET, HEAD, POST.
      *
      * @tparam Body Тип тела запроса
      * @param req Исходный запрос
@@ -224,6 +275,33 @@ private:
      * @return JSON-ответ с данными карты или ошибка 404
      */
     http::response<http::string_body> HandleMapById(const http::request<http::string_body>& req, std::string_view map_id);
+
+    /**
+     * @brief Обрабатывает POST /api/v1/game/join — вход в игру.
+     * @param req Исходный HTTP-запрос
+     * @param send Функция отправки ответа
+     */
+    void HandleJoinGame(
+        http::request<http::string_body>&& req,
+        std::function<void(http::response<http::string_body>&&)>&& send);
+
+    
+    /**
+     * @brief Обрабатывает GET /api/v1/game/players — получение списка игроков.
+     * @param req Исходный HTTP-запрос
+     * @param send Функция отправки ответа
+     */
+    void HandleGetPlayers(
+        http::request<http::string_body>&& req,
+        std::function<void(http::response<http::string_body>&&)>&& send);
+
+    /**
+     * @brief Обрабатывает вход пользователя в игру.
+     * @param user_name Имя пользователя (кличка пса)
+     * @param map_id Id карты
+     * @return Результат операции входа
+     */
+    JoinGameResult JoinGame(std::string user_name, std::string map_id);
 
     // === СТАТИЧЕСКИЕ ФАЙЛЫ ===
     /**
