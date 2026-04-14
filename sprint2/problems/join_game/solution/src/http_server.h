@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sdk.h"
+#include "logger.h"
 
 // boost.beast будет использовать std::string_view вместо boost::string_view
 #define BOOST_BEAST_USE_STD_STRING_VIEW
@@ -17,6 +18,7 @@ namespace net = boost::asio;
 using tcp = net::ip::tcp;
 namespace beast = boost::beast;
 namespace http = beast::http;
+namespace js = boost::json;
 
 //=============================================================================
 // SessionBase - базовый класс сессии
@@ -87,9 +89,13 @@ private:
     beast::flat_buffer buffer_;         ///< Буфер для входящих данных
     HttpRequest request_;               ///< Текущий обрабатываемый запрос
 
-    /// @brief Выводит информацию об ошибке в stderr
-    static void ReportError(beast::error_code ec, const char* what) {
-        std::cerr << what << ": " << ec.message() << std::endl;
+    /// @brief Выводит информацию об ошибке в лог
+    static void ReportError(beast::error_code ec, const char* where) {
+        js::object error_data;
+        error_data["code"] = ec.value();
+        error_data["text"] = ec.message();
+        error_data["where"] = where;
+        LogJson("error", error_data);
     }
 };
 
@@ -201,9 +207,13 @@ private:
         }
     }
 
-    /// @brief Выводит информацию об ошибке в stderr
-    static void ReportError(beast::error_code ec, const char* what) {
-        std::cerr << what << ": " << ec.message() << std::endl;
+    /// @brief Выводит информацию об ошибке в лог
+    static void ReportError(beast::error_code ec, const char* where) {
+        js::object error_data;
+        error_data["code"] = ec.value();
+        error_data["text"] = ec.message();
+        error_data["where"] = where;
+        LogJson("error", error_data);
     }
 };
 

@@ -7,120 +7,106 @@
 #include <optional>
 #include <string>
 #include <filesystem>
+#include <array>
 
 namespace http_handler {
 
 namespace beast = boost::beast;
 namespace http = beast::http;
 
-/**
- * @brief Сериализует объект карты в JSON-формат для передачи по HTTP.
- *
- * Преобразует модель карты (модуль model::Map) в строку JSON, содержащую:
- * - id: уникальный идентификатор карты
- * - name: читаемое название
- * - roads: массив дорог (с координатами начала и конца)
- * - buildings: массив зданий (с позицией и размерами)
- * - offices: массив офисов (с координатами и смещениями для UI)
- *
- * ВАЖНО: Этот метод используется для эндпоинта /api/v1/maps/{id}.
- *
- * Пример результата:
- * @code
- * {
- *   "id": "map1",
- *   "name": "First Map",
- *   "roads": [
- *     {"x0": 0, "y0": 0, "x1": 10},
- *     {"x0": 5, "y0": 5, "y1": 20}
- *   ],
- *   "buildings": [
- *     {"x": 5, "y": 5, "w": 30, "h": 20}
- *   ],
- *   "offices": [
- *     {"id": "o1", "x": 100, "y": 200, "offsetX": 5, "offsetY": 0}
- *   ]
- * }
- * @endcode
- *
- * @param map Константная ссылка на карту (не изменяется)
- * @return std::string — сериализованная JSON-строка
- */
-std::string MapToJson(const model::Map& map);
+// === ТИПЫ ОШИБОК API ===
 
 /**
- * @brief Сериализует список всех карт в краткий JSON-массив.
+ * @brief Перечисление кодов ошибок API.
  *
- * Используется для эндпоинта GET /api/v1/maps.
- * Возвращает только id и name каждой карты — минимальная информация для отображения списка.
- *
- * Пример:
- * [{"id": "map1", "name": "First Map"}, {"id": "map2", "name": "Second Map"}]
- *
- * @param game Ссылка на игровую модель, содержащую карты
- * @return JSON-строка с массивом объектов {id, name}
+ * Каждому значению соответствует HTTP-статус, строковый код и сообщение.
  */
-std::string MapsListToJson(const model::Game& game);
+enum class ApiError {
+    BAD_REQUEST,        ///< Некорректный запрос (400)
+    METHOD_NOT_ALLOWED, ///< Метод не поддерживается (405)
+    MAP_NOT_FOUND,      ///< Карта не найдена (404)
+    FILE_NOT_FOUND      ///< Файл не найден (404)
+};
+
+namespace detail {
+
+struct ApiErrorInfo {
+    http::status status;       ///< HTTP-статус ответа
+    std::string_view code;     ///< Строковый код ошибки (для клиента)
+    std::string_view message;  ///< Человекочитаемое описание
+};
+
+// Таблица соответствия enum → статус, код, сообщение
+constexpr std::array<ApiErrorInfo, 4> api_errors = {{
+    {http::status::bad_request,        "badRequest",        "Bad request"},
+    {http::status::method_not_allowed, "methodNotAllowed",  "Method not allowed"},
+    {http::status::not_found,          "mapNotFound",       "Map not found"},
+    {http::status::not_found,          "fileNotFound",      "File not found"},
+}};
+
+/**
+ * @brief Возвращает информацию об ошибке по её типу.
+ */
+inline const ApiErrorInfo& GetErrorInfo(ApiError error) {
+    return api_errors[static_cast<size_t>(error)];
+}
+
+// Проверка согласованности enum и таблицы
+static_assert(static_cast<size_t>(ApiError::BAD_REQUEST) == 0);
+static_assert(static_cast<size_t>(ApiError::METHOD_NOT_ALLOWED) == 1);
+static_assert(static_cast<size_t>(ApiError::MAP_NOT_FOUND) == 2);
+static_assert(static_cast<size_t>(ApiError::FILE_NOT_FOUND) == 3);
+
+} // namespace detail
 
 /**
  * @class RequestHandler
- * @brief Центральный обработчик HTTP-запросов.
+ * @brief Обработчик HTTP-запросов.
  *
- * Основная задача — маршрутизация запросов:
- * - API-запросы (/api/...) → обрабатываются как данные
+ * Центральный компонент, отвечающий за маршрутизацию и обработку запросов:
+ * - API-эндпоинты (/api/...) → возвращают JSON-данные
  * - Статические файлы (/, /css/style.css) → раздаются как файлы
  *
- * Поддерживаемые методы: GET, HEAD.
- * Все остальные — ответ 405 Method Not Allowed.
+ * Поддерживаемые методы: GET, HEAD. Остальные — 405 Method Not Allowed.
  *
  * Особенности:
- * - Является "владельцем" ссылки на model::Game — единственный способ доступа к данным.
- * - Не поддерживает копирование (удалены конструктор копирования и оператор присваивания).
- * - Использует шаблонный operator() для совместимости с Boost.Beast.
- *
- * УЧЕБНЫЙ АСПЕКТ:
- * Такой подход позволяет инкапсулировать логику обработки запросов,
- * не раскрывая детали реализации сервера.
+ * - Владеет ссылкой на model::Game — единственный источник данных.
+ * - Не поддерживает копирование.
+ * - Использует шаблонный operator() для интеграции с Boost.Beast.
  */
 class RequestHandler {
 public:
     /**
      * @brief Конструктор обработчика.
-     * @param game Ссылка на общую модель игры (хранит карты)
-     * @param static_files_root Путь к папке со статическими файлами (HTML, CSS, JS)
+     * @param game Ссылка на игровую модель
+     * @param static_files_root Путь к директории со статическими файлами
      *
-     * Пример: если static_files_root = "/var/www", то запрос /index.html
-     * будет направлен на файл /var/www/index.html.
+     * Пример: если static_files_root = "./static", то запрос "/index.html"
+     * будет направлен на "./static/index.html".
      */
     explicit RequestHandler(model::Game& game, const std::filesystem::path& static_files_root);
 
-    // Инвалидация кэша при изменении карт (если понадобится)
+    /**
+     * @brief Инвалидирует кэш сериализованных данных.
+     *
+     * Вызывается при изменении карт, чтобы обновить закэшированные JSON.
+     */
     void InvalidateCache();
 
-    // Запрещаем копирование — объект должен быть единственным
+    // Запрещаем копирование
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
 
     /**
-     * @brief Шаблонный вызываемый оператор — точка входа для запроса.
+     * @brief Шаблонный вызываемый оператор — точка входа для HTTP-запроса.
      *
-     * Вызывается фреймворком Boost.Beast при получении HTTP-запроса.
+     * Вызывается фреймворком Boost.Beast при получении запроса.
      *
-     * Параметры шаблона:
-     * - Body: тип тела запроса (например, string_body, empty_body)
-     * - Allocator: аллокатор заголовков
-     * - Send: функция обратного вызова для отправки ответа
-     *
-     * Логика:
-     * 1. Извлекает target (URI) из запроса.
-     * 2. Проверяет метод: только GET и HEAD разрешены.
-     * 3. Роутинг:
-     *    - /api/v1/maps → HandleMapsList или HandleMapById
-     *    - /api/... (другое) → 400 Bad Request
-     *    - всё остальное → статический файл
-     *
+     * @tparam Body Тип тела запроса
+     * @tparam Allocator Аллокатор заголовков
+     * @tparam Send Функция обратного вызова для отправки ответа
      * @param req Полученный HTTP-запрос
-     * @param send Функция: принимает response и отправляет клиенту
+     * @param send Функция отправки ответа клиенту
      */
     template <typename Body, typename Allocator, typename Send>
     void operator()(
@@ -143,7 +129,7 @@ public:
         }
         // Другие API-пути — запрещены
         else if (target.rfind("api/", 0) == 0) {
-            send(MakeBadRequestResponse(req));
+            send(MakeApiErrorResponse(req, ApiError::BAD_REQUEST));
         }
         // Статические файлы
         else {
@@ -152,29 +138,30 @@ public:
     }
 
 private:
+    // === ДАННЫЕ ===
     model::Game& game_;                    ///< Ссылка на модель игры
-    std::filesystem::path static_files_root_;  ///< Корень статики (например, ./static)
+    std::filesystem::path static_files_root_;  ///< Корень статических файлов
 
     // === КЭШИРОВАНИЕ ===
-    mutable std::unordered_map<std::string, std::string> map_json_cache_;
-    mutable std::string maps_list_json_;
-    mutable bool maps_list_cache_valid_ = false;
+    mutable std::unordered_map<std::string, std::string> map_json_cache_;  ///< Кэш JSON по ID карты
+    mutable std::string maps_list_json_;       ///< Кэш списка карт
+    mutable bool maps_list_cache_valid_ = false;  ///< Флаг валидности кэша
 
+    // === HTTP: УНИВЕРСАЛЬНЫЕ ОТВЕТЫ ===
     /**
-     * @brief Универсальный шаблон для создания HTTP-ответа.
+     * @brief Создаёт HTTP-ответ с указанным статусом и телом.
      *
-     * Инкапсулирует общую логику:
-     * - Установка статуса
+     * Устанавливает:
      * - Content-Type
      * - Content-Length
      * - keep-alive
      * - Тело (не отправляется при HEAD)
      *
      * @tparam Body Тип тела исходного запроса
-     * @param status Код ответа (200, 404 и т.д.)
-     * @param body Тело ответа (может быть пустым для HEAD)
+     * @param status HTTP-статус
+     * @param body Тело ответа
      * @param content_type MIME-тип содержимого
-     * @param req Исходный запрос (для keep_alive)
+     * @param req Исходный запрос
      * @return Готовый HTTP-ответ
      */
     template<typename Body>
@@ -184,28 +171,66 @@ private:
         std::string_view content_type,
         const http::request<Body>& req);
 
-    // === API Обработчики ===
+    /**
+     * @brief Создаёт JSON-ответ с ошибкой API.
+     *
+     * Формат тела: {"code": "...", "message": "..."}
+     *
+     * @tparam Body Тип тела запроса
+     * @param req Исходный запрос
+     * @param error Тип ошибки
+     * @return HTTP-ответ с JSON-ошибкой
+     */
+    template<typename Body>
+    http::response<http::string_body> MakeApiErrorResponse(
+        const http::request<Body>& req, ApiError error);
 
     /**
-     * @brief Обрабатывает часть пути после /api/v1/maps
+     * @brief Создаёт ответ 405 Method Not Allowed.
+     *
+     * Добавляет заголовок Allow: GET, HEAD.
+     *
+     * @tparam Body Тип тела запроса
      * @param req Исходный запрос
-     * @param send Callback для отправки ответа
-     * @param path_suffix Часть пути после "api/v1/maps" (например, "/map1")
+     * @return HTTP-ответ с ошибкой
+     */
+    template<typename Body>
+    http::response<http::string_body> MakeMethodNotAllowedResponse(
+        const http::request<Body>& req);
+
+    // === API ОБРАБОТЧИКИ ===
+    /**
+     * @brief Обрабатывает запросы к /api/v1/maps.
+     *
+     * Роутинг:
+     * - /api/v1/maps - HandleMapsList
+     * - /api/v1/maps/{id} - HandleMapById
      */
     void HandleApiMaps(
         http::request<http::string_body>&& req,
         std::function<void(http::response<http::string_body>&&)>&& send,
         std::string_view path_suffix);
 
-    /// Обрабатывает GET /api/v1/maps — возвращает список карт
+    /**
+     * @brief Обрабатывает GET /api/v1/maps — возвращает список карт.
+     * @return JSON-ответ с массивом {id, name}
+     */
     http::response<http::string_body> HandleMapsList(const http::request<http::string_body>& req);
 
-    /// Обрабатывает GET /api/v1/maps/{id} — возвращает полное описание карты
+    /**
+     * @brief Обрабатывает GET /api/v1/maps/{id} — возвращает полное описание карты.
+     * @param req Исходный HTTP-запрос
+     * @param map_id Идентификатор карты
+     * @return JSON-ответ с данными карты или ошибка 404
+     */
     http::response<http::string_body> HandleMapById(const http::request<http::string_body>& req, std::string_view map_id);
 
-    // === Статические файлы ===
-
-    /// Обрабатывает запрос к статическому файлу (HTML, CSS, JS и т.д.)
+    // === СТАТИЧЕСКИЕ ФАЙЛЫ ===
+    /**
+     * @brief Обрабатывает запрос к статическим файлам.
+     *
+     * Поддерживает index.html по умолчанию, защиту от path traversal.
+     */
     void HandleStaticFile(
         const http::request<http::string_body>& req,
         std::function<void(http::response<http::string_body>&&)>&& send,
@@ -228,15 +253,6 @@ private:
         const std::string& content,
         const std::filesystem::path& path,
         const http::request<http::string_body>& req);
-
-    /// Создаёт ответ с ошибкой 400 Bad Request
-    http::response<http::string_body> MakeBadRequestResponse(const http::request<http::string_body>& req);
-
-    /// Создаёт ответ с ошибкой 404 Not Found
-    http::response<http::string_body> MakeNotFoundResponse(const http::request<http::string_body>& req);
-
-    /// Создаёт ответ с ошибкой 405 Method Not Allowed
-    http::response<http::string_body> MakeMethodNotAllowedResponse(const http::request<http::string_body>& req);
 };
 
 }  // namespace http_handler

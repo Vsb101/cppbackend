@@ -2,11 +2,12 @@
 //
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
-#include <iostream>
 #include <thread>
 
 #include "json_loader.h"
 #include "request_handler.h"
+#include "logger.h"
+#include "logging_request_handler.h"
 
 using namespace std::literals;
 namespace net = boost::asio;
@@ -35,6 +36,12 @@ int main(int argc, const char* argv[]) {
         std::cerr << "Usage: game_server <game-config-json> <static-files-root>"sv << std::endl;
         return EXIT_FAILURE;
     }
+    
+    // Инициализируем логгер
+    InitLogger();
+    
+    int exit_code = EXIT_SUCCESS;
+    
     try {
         //Загружаем карту из файла и построить модель игры
         model::Game game = json_loader::LoadGame(argv[1]);
@@ -47,7 +54,6 @@ int main(int argc, const char* argv[]) {
         net::signal_set signals(ioc, SIGINT, SIGTERM);
         signals.async_wait([&ioc](beast::error_code ec, int signal_number) {
             if (!ec) {
-                std::cout << "Signal " << signal_number << " received" << std::endl;
                 ioc.stop();
             }
         });
@@ -55,24 +61,41 @@ int main(int argc, const char* argv[]) {
         // Создаём обработчик HTTP-запросов и связываем его с моделью игры и статическими файлами
         http_handler::RequestHandler handler{game, argv[2]};
 
-        // Запустить обработчик HTTP-запросов, делегируя их обработчику запросов
+        // Создаём декоратор для логирования
         const auto address = net::ip::make_address("0.0.0.0");
         constexpr net::ip::port_type port = 8080;
-        http_server::ServeHttp(ioc, {address, port}, [&handler](auto&& req, auto&& send) {
-            handler(std::forward<decltype(req)>(req), std::forward<decltype(send)>(send));
-        });
-
-        // Эта надпись сообщает тестам о том, что сервер запущен и готов обрабатывать запросы
-        // Нужно по условию
-        std::cout << "Server has started..."sv << std::endl;
+        net::ip::tcp::endpoint endpoint{address, port};
         
+        // Логгируем запуск сервера
+        js::object start_data;
+        start_data["port"] = port;
+        start_data["address"] = "0.0.0.0"s;
+        LogJson("server started", start_data);
+        
+        // Создаём декоратор и запускаем серве
+        auto logging_handler = http_handler::LoggingRequestHandler{handler};
+        http_server::ServeHttp(ioc, endpoint, [&logging_handler](auto&& req, auto&& send) {
+            logging_handler(std::forward<decltype(req)>(req), std::forward<decltype(send)>(send));
+        });
 
         // Запускаем обработку асинхронных операций
         RunWorkers(std::max(1u, num_threads), [&ioc] {
             ioc.run();
         });
     } catch (const std::exception& ex) {
-        std::cerr << ex.what() << std::endl;
-        return EXIT_FAILURE;
+        // Логгируем ошибку с исключением
+        js::object error_data;
+        error_data["code"] = 1;
+        error_data["text"] = ex.what();
+        error_data["where"] = "main";
+        LogJson("error", error_data);
+        exit_code = EXIT_FAILURE;
     }
+    
+    // Логгируем остановку сервера
+    js::object exit_data;
+    exit_data["code"] = exit_code;
+    LogJson("server exited", exit_data);
+    
+    return exit_code;
 }

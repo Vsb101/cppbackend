@@ -1,9 +1,9 @@
 #include "request_handler.h"
+#include "json_builder.h"
 
 #include <boost/asio/dispatch.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
-#include <boost/json.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -21,138 +21,42 @@ namespace sys = boost::system;
 namespace json = boost::json;
 using namespace std::literals;
 
-// === СЕРИАЛИЗАЦИЯ В JSON ===
-
-std::string MapToJson(const model::Map& map) {
-    json::object result;
-
-    // Основные поля карты
-    result["id"] = *map.GetId();      // Указатель на Id → разыменовываем
-    result["name"] = map.GetName();   // Просто строка
-
-    // === Дороги ===
-    // Дорога может быть горизонтальной (x меняется) или вертикальной (y меняется)
-    // Поэтому в JSON:
-    // - Горизонтальная: {x0, y0, x1}
-    // - Вертикальная:   {x0, y0, y1}
-    json::array roads;
-    for (const auto& road : map.GetRoads()) {
-        json::object road_obj;
-        road_obj["x0"] = road.GetStart().x;
-        road_obj["y0"] = road.GetStart().y;
-
-        if (road.IsHorizontal()) {
-            road_obj["x1"] = road.GetEnd().x;
-        } else {
-            road_obj["y1"] = road.GetEnd().y;
-        }
-        roads.push_back(std::move(road_obj));
-    }
-    result["roads"] = std::move(roads);
-
-    // === Здания ===
-    // Каждое здание имеет прямоугольную область (Bounds): позиция и размер
-    json::array buildings;
-    for (const auto& building : map.GetBuildings()) {
-        json::object building_obj;
-        const auto& bounds = building.GetBounds();
-        building_obj["x"] = bounds.position.x;
-        building_obj["y"] = bounds.position.y;
-        building_obj["w"] = bounds.size.width;
-        building_obj["h"] = bounds.size.height;
-        buildings.push_back(std::move(building_obj));
-    }
-    result["buildings"] = std::move(buildings);
-
-    // === Офисы ===
-    // Офисы используются для размещения игроков.
-    // offsetX/Y — смещение метки на карте относительно точки (x,y)
-    json::array offices;
-    for (const auto& office : map.GetOffices()) {
-        json::object office_obj;
-        office_obj["id"] = *office.GetId();
-        office_obj["x"] = office.GetPosition().x;
-        office_obj["y"] = office.GetPosition().y;
-        office_obj["offsetX"] = office.GetOffset().dx;
-        office_obj["offsetY"] = office.GetOffset().dy;
-        offices.push_back(std::move(office_obj));
-    }
-    result["offices"] = std::move(offices);
-
-    // Сериализуем весь объект в строку
-    return json::serialize(result);
-}
-
-std::string MapsListToJson(const model::Game& game) {
-    json::array maps_array;
-
-    // Для каждого элемента в списке карт создаём объект {id, name}
-    for (const auto& map : game.GetMaps()) {
-        json::object map_obj;
-        map_obj["id"] = *map.GetId();
-        map_obj["name"] = map.GetName();
-        maps_array.push_back(std::move(map_obj));
-    }
-
-    return json::serialize(maps_array);
-}
-
-// === УНИВЕРСАЛЬНЫЙ ОТВЕТ ===
-
-template<typename Body>
-http::response<http::string_body> RequestHandler::MakeResponse(
-    http::status status,
-    std::string_view body,
-    std::string_view content_type,
-    const http::request<Body>& req) {
-    http::response<http::string_body> response;
-    response.result(status);
-    response.set(http::field::content_type, content_type);
-    response.content_length(body.size());
-    response.keep_alive(req.keep_alive());
-
-    // По стандарту HTTP, HEAD-запросы НЕ должны иметь тела.
-    // Но Content-Length должен быть таким же, как если бы тело было.
-    if (req.method() != http::verb::head) {
-        response.body() = std::string(body);  // копируем только если не HEAD
-    }
-
-    return response;
-}
+// === КОНСТРУКТОР ===
 
 RequestHandler::RequestHandler(model::Game& game, const std::filesystem::path& static_files_root)
-    : game_(game), static_files_root_(static_files_root) {
+    : game_(game)
+    , static_files_root_(static_files_root)
+{
 }
 
-// === ОБРАБОТКА API ===
-
-void RequestHandler::HandleApiMaps(
-    http::request<http::string_body>&& req,
-    std::function<void(http::response<http::string_body>&&)>&& send,
-    std::string_view path_suffix) {
-    // Пустой суффикс или "/" → список всех карт
-    if (path_suffix.empty() || path_suffix == "/") {
-        send(HandleMapsList(req));
-    }
-    // Начинается с '/' → /{id}
-    else if (path_suffix[0] == '/') {
-        send(HandleMapById(req, path_suffix.substr(1)));
-    }
-    // Некорректный путь
-    else {
-        send(MakeBadRequestResponse(req));
-    }
-}
+// === КЭШИРОВАНИЕ ===
 
 void RequestHandler::InvalidateCache() {
     map_json_cache_.clear();
     maps_list_cache_valid_ = false;
 }
 
+// === API ОБРАБОТЧИКИ ===
+
+void RequestHandler::HandleApiMaps(
+    http::request<http::string_body>&& req,
+    std::function<void(http::response<http::string_body>&&)>&& send,
+    std::string_view path_suffix) {
+    if (path_suffix.empty() || path_suffix == "/") {
+        send(HandleMapsList(req));
+    }
+    else if (path_suffix[0] == '/') {
+        send(HandleMapById(req, path_suffix.substr(1)));
+    }
+    else {
+        send(MakeApiErrorResponse(req, ApiError::BAD_REQUEST));
+    }
+}
+
 http::response<http::string_body> RequestHandler::HandleMapsList(
     const http::request<http::string_body>& req) {
     if (!maps_list_cache_valid_) {
-        maps_list_json_ = MapsListToJson(game_);
+        maps_list_json_ = json_builder::BuildMapsList(game_);
         maps_list_cache_valid_ = true;
     }
     return MakeResponse(http::status::ok, maps_list_json_, "application/json", req);
@@ -161,28 +65,63 @@ http::response<http::string_body> RequestHandler::HandleMapsList(
 http::response<http::string_body> RequestHandler::HandleMapById(
     const http::request<http::string_body>& req,
     std::string_view map_id) {
-    // Преобразуем string_view в строку для Id
     const model::Map* map = game_.FindMap(model::Map::Id{std::string(map_id)});
     if (!map) {
-        return MakeResponse(
-            http::status::not_found,
-            R"({"code": "mapNotFound", "message": "Map not found"})"sv,
-            "application/json",
-            req);
+        return MakeApiErrorResponse(req, ApiError::MAP_NOT_FOUND);
     }
 
-    // Проверяем кэш
     std::string map_id_str(map_id);
     auto it = map_json_cache_.find(map_id_str);
     if (it == map_json_cache_.end()) {
-        // Кэшируем результат
-        it = map_json_cache_.emplace(map_id_str, MapToJson(*map)).first;
+        it = map_json_cache_.emplace(map_id_str, json_builder::BuildMap(*map)).first;
     }
-    
+
     return MakeResponse(http::status::ok, it->second, "application/json", req);
 }
 
-// === ОБРАБОТКА СТАТИКИ ===
+// === СТАТИЧЕСКИЕ ФАЙЛЫ ===
+
+void RequestHandler::HandleStaticFile(
+    const http::request<http::string_body>& req,
+    std::function<void(http::response<http::string_body>&&)>&& send,
+    std::string_view target) {
+    
+    std::string decoded_target = UrlDecode(target);
+    std::filesystem::path requested_path(decoded_target);
+
+    if (decoded_target.empty() || decoded_target.back() == '/' || !requested_path.has_filename()) {
+        requested_path /= "index.html";
+    }
+
+    std::filesystem::path full_path = static_files_root_ / requested_path;
+
+    try {
+        full_path = std::filesystem::weakly_canonical(full_path);
+
+        if (!IsSubPath(full_path)) {
+            send(MakeApiErrorResponse(req, ApiError::BAD_REQUEST));
+            return;
+        }
+
+        if (std::filesystem::is_directory(full_path)) {
+            full_path /= "index.html";
+        }
+
+        if (!std::filesystem::is_regular_file(full_path)) {
+            send(MakeApiErrorResponse(req, ApiError::FILE_NOT_FOUND));
+            return;
+        }
+
+        if (auto content = ReadFileContent(full_path)) {
+            send(MakeFileResponse(*content, full_path, req));
+        } else {
+            send(MakeApiErrorResponse(req, ApiError::FILE_NOT_FOUND));
+        }
+
+    } catch (const std::filesystem::filesystem_error&) {
+        send(MakeApiErrorResponse(req, ApiError::FILE_NOT_FOUND));
+    }
+}
 
 std::string RequestHandler::GetMimeType(std::string_view path) {
     std::string extension;
@@ -210,18 +149,18 @@ std::string RequestHandler::GetMimeType(std::string_view path) {
     if (it != mime_types.end()) {
         return std::string(it->second);
     }
-    return "application/octet-stream";  // бинарные данные по умолчанию
+    return "application/octet-stream";
 }
 
 std::string RequestHandler::UrlDecode(std::string_view str) {
     std::string decoded;
-    decoded.reserve(str.size());  // оптимизация: избегаем реаллокаций
+    decoded.reserve(str.size());
 
     auto from_hex = [](char c) -> int {
         if (c >= '0' && c <= '9') return c - '0';
         if (c >= 'a' && c <= 'f') return c - 'a' + 10;
         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        return -1; // невалидный символ
+        return -1;
     };
 
     for (size_t i = 0; i < str.size(); ++i) {
@@ -229,15 +168,13 @@ std::string RequestHandler::UrlDecode(std::string_view str) {
         if (c == '+') {
             decoded += ' ';
         } else if (c == '%' && i + 2 < str.size()) {
-            // Читаем два следующих символа
             int hi = from_hex(str[i + 1]);
             int lo = from_hex(str[i + 2]);
             if (hi != -1 && lo != -1) {
                 decoded += static_cast<char>((hi << 4) | lo);
-                i += 2; // пропускаем два символа после '%'
+                i += 2;
                 continue;
             }
-            // Если hex-код некорректен — трактуем буквально
             decoded += c;
         } else {
             decoded += c;
@@ -247,58 +184,10 @@ std::string RequestHandler::UrlDecode(std::string_view str) {
     return decoded;
 }
 
-void RequestHandler::HandleStaticFile(
-    const http::request<http::string_body>& req,
-    std::function<void(http::response<http::string_body>&&)>&& send,
-    std::string_view target) {
-    
-    std::string decoded_target = UrlDecode(target);
-    std::filesystem::path requested_path(decoded_target);
-
-    // Если путь пустой или заканчивается на '/', считаем, что нужен index.html
-    if (decoded_target.empty() || decoded_target.back() == '/' || !requested_path.has_filename()) {
-        requested_path /= "index.html";
-    }
-
-    std::filesystem::path full_path = static_files_root_ / requested_path;
-
-    try {
-        // Приводим путь к каноничному виду (разрешаем ., ..)
-        full_path = std::filesystem::weakly_canonical(full_path);
-
-        // Защита от path traversal: проверяем, что путь внутри корня
-        if (!IsSubPath(full_path)) {
-            send(MakeBadRequestResponse(req));
-            return;
-        }
-
-        // Если это директория — добавляем index.html
-        if (std::filesystem::is_directory(full_path)) {
-            full_path /= "index.html";
-        }
-
-        // Только обычные файлы можно отдавать
-        if (!std::filesystem::is_regular_file(full_path)) {
-            send(MakeNotFoundResponse(req));
-            return;
-        }
-
-        // Читаем содержимое
-        if (auto content = ReadFileContent(full_path)) {
-            send(MakeFileResponse(*content, full_path, req));
-        } else {
-            send(MakeNotFoundResponse(req));
-        }
-
-    } catch (const std::filesystem::filesystem_error&) {
-        send(MakeNotFoundResponse(req));
-    }
-}
-
 bool RequestHandler::IsSubPath(const std::filesystem::path& path) const {
     std::error_code ec;
     std::filesystem::path full = std::filesystem::weakly_canonical(path, ec);
-    if (ec) return false;  // ошибка при нормализации
+    if (ec) return false;
 
     std::filesystem::path root = std::filesystem::weakly_canonical(static_files_root_, ec);
     if (ec) return false;
@@ -306,7 +195,6 @@ bool RequestHandler::IsSubPath(const std::filesystem::path& path) const {
     std::string full_str = full.string();
     std::string root_str = root.string();
 
-    // Проверяем, что full начинается с root
     return full_str.size() >= root_str.size() &&
            full_str.compare(0, root_str.size(), root_str) == 0;
 }
@@ -318,7 +206,7 @@ std::optional<std::string> RequestHandler::ReadFileContent(const std::filesystem
     }
 
     std::ostringstream buffer;
-    buffer << file.rdbuf();  // читаем весь файл
+    buffer << file.rdbuf();
     return buffer.str();
 }
 
@@ -329,35 +217,57 @@ http::response<http::string_body> RequestHandler::MakeFileResponse(
     return MakeResponse(http::status::ok, content, GetMimeType(path.string()), req);
 }
 
-// === ОТВЕТЫ НА ОШИБКИ ===
+// === УНИВЕРСАЛЬНЫЕ ОТВЕТЫ ===
 
-http::response<http::string_body> RequestHandler::MakeBadRequestResponse(
-    const http::request<http::string_body>& req) {
-    return MakeResponse(
-        http::status::bad_request,
-        R"({"code": "badRequest", "message": "Bad request"})"sv,
-        "application/json",
-        req);
-}
+template<typename Body>
+http::response<http::string_body> RequestHandler::MakeResponse(
+    http::status status,
+    std::string_view body,
+    std::string_view content_type,
+    const http::request<Body>& req) {
+    http::response<http::string_body> response;
+    response.result(status);
+    response.set(http::field::content_type, content_type);
+    response.content_length(body.size());
+    response.keep_alive(req.keep_alive());
 
-http::response<http::string_body> RequestHandler::MakeNotFoundResponse(
-    const http::request<http::string_body>& req) {
-    return MakeResponse(
-        http::status::not_found,
-        "File not found"sv,
-        "text/plain",
-        req);
-}
+    if (req.method() != http::verb::head) {
+        response.body() = std::string(body);
+    }
 
-http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(
-    const http::request<http::string_body>& req) {
-    auto response = MakeResponse(
-        http::status::method_not_allowed,
-        R"({"code": "badRequest", "message": "Bad request"})"sv,
-        "application/json",
-        req);
-    response.set(http::field::allow, "GET, HEAD");  // обязательный заголовок
     return response;
 }
+
+template http::response<http::string_body> RequestHandler::MakeResponse(
+    http::status, std::string_view, std::string_view, const http::request<http::string_body>&);
+
+// === ОБРАБОТКА ОШИБОК ===
+
+template<typename Body>
+http::response<http::string_body> RequestHandler::MakeApiErrorResponse(
+    const http::request<Body>& req, ApiError error) {
+    using namespace detail;
+    const auto& info = GetErrorInfo(error);
+
+    json::object body;
+    body["code"] = std::string(info.code);
+    body["message"] = std::string(info.message);
+
+    return MakeResponse(info.status, json::serialize(body), "application/json", req);
+}
+
+template http::response<http::string_body> RequestHandler::MakeApiErrorResponse(
+    const http::request<http::string_body>&, ApiError);
+
+template<typename Body>
+http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(
+    const http::request<Body>& req) {
+    auto response = MakeApiErrorResponse(req, ApiError::METHOD_NOT_ALLOWED);
+    response.set(http::field::allow, "GET, HEAD");
+    return response;
+}
+
+template http::response<http::string_body> RequestHandler::MakeMethodNotAllowedResponse(
+    const http::request<http::string_body>&);
 
 }  // namespace http_handler
