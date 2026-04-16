@@ -143,17 +143,14 @@ model::Map ParseMap(const json::object& map_obj) {
  * }
  * @endcode
  */
-model::Game LoadGame(const std::filesystem::path& json_path) {
-    std::string json_str = ReadFile(json_path);
+void LoadGame(std::string_view json_path, model::Game& game) {
+    std::string json_str = ReadFile(std::filesystem::path(json_path));
     auto value = json::parse(json_str);
     const json::object& obj = value.as_object();
     
-    model::Game game;
     for (const auto& map_value : obj.at("maps").as_array()) {
         game.AddMap(ParseMap(map_value.as_object()));
     }
-
-    return game;
 }
 
 }  // namespace json_loader
