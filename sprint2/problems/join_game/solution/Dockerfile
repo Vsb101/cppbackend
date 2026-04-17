@@ -13,13 +13,16 @@ COPY conanfile.txt /app/
 RUN mkdir /app/build && cd /app/build && \
     conan install .. --build=missing -s compiler.libcxx=libstdc++11 -s build_type=Release
 
-# только после этого копируем остальные иходники
+# только после этого копируем остальные исходники
 COPY ./src /app/src
 COPY ./data /app/data
 COPY ./static /app/static
 COPY CMakeLists.txt /app/
 
-RUN cd /app/build && \
+# Очищаем кэш CMake и пересобираем
+RUN rm -rf /app/build/* && \
+    cd /app/build && \
+    conan install .. --build=missing -s compiler.libcxx=libstdc++11 -s build_type=Release && \
     cmake -DCMAKE_BUILD_TYPE=Release .. && \
     cmake --build .
     
