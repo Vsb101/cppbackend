@@ -20,7 +20,7 @@ const size_t FOUR_SEGMENT_SIZE = 4;
 template <typename Request>
 bool BadRequestCheck(const Request& req) {
   // Проверяем только базовую структуру URL для /api/v1/...
-  auto url = SplitStr(req.target());
+  auto url = util::SplitStr(req.target());
   if (url.empty() || url[0] != "api") {
     return false;  // Не наш API, пусть другие обработчики решают
   }
@@ -62,7 +62,7 @@ std::optional<size_t> GetMapList(const Request& req, app::Application& applicati
 
 template <typename Request>
 bool GetMapByIdCheck(const Request& req) {
-  auto url = SplitStr(req.target());
+  auto url = util::SplitStr(req.target());
   return url.size() == FOUR_SEGMENT_SIZE && url[0] == "api" && url[1] == "v1" &&
          url[2] == "maps";
 }
@@ -70,7 +70,7 @@ bool GetMapByIdCheck(const Request& req) {
 template <typename Request, typename Send>
 std::optional<size_t> GetMapById(const Request& req, app::Application& application,
                                  Send&& send) {
-  auto id = SplitStr(req.target())[3];
+  auto id = util::SplitStr(req.target())[3];
   auto map = application.FindMap(model::Map::Id(std::string(id)));
   if (map == nullptr) {
     return 0;
@@ -209,7 +209,7 @@ bool EmptyAuthorizationCheck(const Request& req) {
           (req.target() == "/api/v1/game/state" ||
            req.target() == "/api/v1/game/state/")) &&
          (req[http::field::authorization].empty() ||
-          GetBearerToken(req[http::field::authorization]).empty());
+          util::GetBearerToken(req[http::field::authorization]).empty());
 };
 
 template <typename Request, typename Send>
@@ -239,7 +239,7 @@ bool GetPlayersListCheck(const Request& req) {
 template <typename Request, typename Send>
 std::optional<size_t> GetPlayersList(const Request& req, app::Application& application,
                                      Send&& send) {
-  model::Token token{GetBearerToken(req[http::field::authorization])};
+  model::Token token{util::GetBearerToken(req[http::field::authorization])};
   if (!application.CheckPlayerByToken(token)) {
     return 0;
   }
@@ -286,7 +286,7 @@ bool GameStateCheck(const Request& req) {
 template <typename Request, typename Send>
 std::optional<size_t> GetGameState(const Request& req, app::Application& application,
                                    Send&& send) {
-  model::Token token{GetBearerToken(req[http::field::authorization])};
+  model::Token token{util::GetBearerToken(req[http::field::authorization])};
   if (!application.CheckPlayerByToken(token)) {
     return 0;
   }

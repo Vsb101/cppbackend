@@ -1,69 +1,78 @@
 #pragma once
+
 #include <compare>
-#include <utility>
 #include <cstddef>
 #include <functional>
+#include <type_traits>
 
 namespace util {
 
 /**
- * Вспомогательный шаблонный класс "Маркированный тип".
- * С его помощью можно описать строгий тип на основе другого типа.
- * Пример:
- *
- *  struct AddressTag{}; // метка типа для строки, хранящей адрес
- *  using Address = util::Tagged<std::string, AddressTag>;
- *
- *  struct NameTag{}; // метка типа для строки, хранящей имя
- *  using Name = util::Tagged<std::string, NameTag>;
- *
- *  struct Person {
- *      Name name;
- *      Address address;
- *  };
- *
- *  Name name{"Harry Potter"s};
- *  Address address{"4 Privet Drive, Little Whinging, Surrey, England"s};
- *
- * Person p1{name, address}; // OK
- * Person p2{address, name}; // Ошибка, Address и Name - разные типы
+ * @brief Типобезопасная обёртка над значением
+ * 
+ * Позволяет создать уникальный тип на основе существующего,
+ * предотвращая случайную подмену значений разных типов.
+ * 
+ * @tparam Value Базовый тип значения
+ * @tparam Tag Уникальная метка типа (пустая структура)
+ * 
+ * @code
+ * struct AddressTag {};
+ * struct NameTag {};
+ * 
+ * using Address = Tagged<std::string, AddressTag>;
+ * using Name = Tagged<std::string, NameTag>;
+ * 
+ * Name name{"Harry"};
+ * Address addr{"Privet Drive"};
+ * 
+ * Person p1{name, addr};      // OK
+ * Person p2{addr, name};      // Ошибка компиляции!
+ * @endcode
  */
 template <typename Value, typename Tag>
 class Tagged {
-public:
-    using ValueType = Value;
-    using TagType = Tag;
+ public:
+  using ValueType = Value;
+  using TagType = Tag;
 
-    explicit Tagged(Value&& v)
-        : value_(std::move(v)) {
-    }
-    explicit Tagged(const Value& v)
-        : value_(v) {
-    }
+  Tagged() = default;
 
-    const Value& operator*() const {
-        return value_;
-    }
+  explicit Tagged(const Value& v) : value_(v) {}
 
-    Value& operator*() {
-        return value_;
-    }
+  explicit Tagged(Value&& v) : value_(std::move(v)) {}
 
-    // Так в C++20 можно объявить оператор сравнения Tagged-типов
-    // Будет просто вызван соответствующий оператор для поля value_
-    auto operator<=>(const Tagged<Value, Tag>&) const = default;
+  [[nodiscard]] constexpr const Value& GetValue() const { return value_; }
 
-private:
-    Value value_;
+  [[nodiscard]] constexpr Value& GetValue() { return value_; }
+
+  [[nodiscard]] constexpr const Value& operator*() const { return value_; }
+
+  [[nodiscard]] constexpr Value& operator*() { return value_; }
+
+  explicit operator const Value&() const { return value_; }
+
+  explicit operator Value&() { return value_; }
+
+  [[nodiscard]] auto operator<=>(const Tagged&) const = default;
+
+ private:
+  Value value_;
 };
 
-// Хешер для Tagged-типа, чтобы Tagged-объекты можно было хранить в unordered-контейнерах
+/**
+ * @brief Хеш-функция для Tagged-типов
+ * 
+ * Позволяет использовать Tagged в unordered-контейнерах
+ * 
+ * @tparam TaggedValue Тип Tagged<Value, Tag>
+ */
 template <typename TaggedValue>
 struct TaggedHasher {
-    size_t operator()(const TaggedValue& value) const {
-        // Возвращает хеш значения, хранящегося внутри value
-        return std::hash<typename TaggedValue::ValueType>{}(*value);
-    }
+  [[nodiscard]] size_t operator()(const TaggedValue& value) const {
+    using ValueType = typename TaggedValue::ValueType;
+    return std::hash<ValueType>{}(*value);
+  }
 };
 
 }  // namespace util

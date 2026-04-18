@@ -1,22 +1,16 @@
 #include "../other/file_system.h"
 
-namespace userFileSystem{
+#include <system_error>
 
-using namespace std::literals;
+namespace util {
 
-
-bool IsSubPath(std::filesystem::path path, std::filesystem::path base) {        //Тру если path это подпуть base
-    // Приводим оба пути к каноничному виду (без . и ..)
-    path = std::filesystem::weakly_canonical(path);
-    base = std::filesystem::weakly_canonical(base);
-
+bool IsSubPath(const std::filesystem::path& path,
+               const std::filesystem::path& base) {
+    std::error_code ec;
+    const auto rel = std::filesystem::relative(path, base, ec);
     
-    for (auto b = base.begin(), p = path.begin(); b != base.end(); ++b, ++p) {  //Проверяем, что все компоненты base содержатся внутри path
-        if (p == path.end() || *p != *b) {
-            return false;
-        }
-    }
-    return true;
+    // Если путь не выходит за пределы base, relative не начнётся с ".."
+    return !ec && (!rel.has_relative_path() || !rel.root_path().empty());
 }
 
-}//namespace filesystem
+}  // namespace util

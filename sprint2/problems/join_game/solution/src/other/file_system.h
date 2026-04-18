@@ -1,8 +1,19 @@
 #pragma once
+
 #include <filesystem>
 
-namespace userFileSystem {
+namespace util {
 
-bool IsSubPath(std::filesystem::path path, std::filesystem::path base); //Тру если path это подпуть base
+/**
+ * @brief Проверяет, является ли путь подпутём базового
+ * 
+ * Пример: IsSubPath("/app/static/css/main.css", "/app/static") -> true
+ * 
+ * @param path Проверяемый путь
+ * @param base Базовый путь
+ * @return true если path начинается с base
+ */
+[[nodiscard]] bool IsSubPath(const std::filesystem::path& path,
+                             const std::filesystem::path& base);
 
-}
+}  // namespace util

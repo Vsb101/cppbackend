@@ -71,7 +71,7 @@ bool LeaveStaticContentRootDirCheck(const Request& req,
   std::string_view pathStr = req.target().substr(1, req.target().size() - 1);
   std::filesystem::path tmpPath{pathStr};
   staticContent = std::filesystem::weakly_canonical(staticContent / tmpPath);
-  return !userFileSystem::IsSubPath(staticContent, staticContentPath);
+  return !util::IsSubPath(staticContent, staticContentPath);
 };
 
 template <typename Request, typename Send>
