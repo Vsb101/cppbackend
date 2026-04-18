@@ -9,13 +9,14 @@
 namespace jsonOperation {
 
     std::string GameToJson(const model::Game::Maps& game) {
-        boost::json::array mapsArr;
-        for (auto map : game) {
-            boost::json::value item = { {model::MAP_ID, *(map->GetId())},
-                                        {model::MAP_NAME, map->GetName()} };
-            mapsArr.push_back(item);
+        boost::json::array maps_arr;
+        for (const auto& map : game) {
+            boost::json::object item;
+            item[std::string(model::kMapId)] = *(map->GetId());
+            item[std::string(model::kMapName)] = map->GetName();
+            maps_arr.push_back(item);
         }
-        return boost::json::serialize(mapsArr);
+        return boost::json::serialize(maps_arr);
     }
 
     std::string MapToJson(const model::Map& map) {                                              
@@ -128,19 +129,19 @@ namespace jsonOperation {
         }
     };
 
-    std::string GameState(const std::vector< std::weak_ptr<model::Player> >& players) {
+    std::string GameState(const std::vector<std::weak_ptr<model::Player>>& players) {
         boost::json::value jv;
         boost::json::object obj;
-        for (auto item : players) {
+        for (const auto& item : players) {
             auto player = item.lock();
             auto dog = player->GetDog().lock();
             std::stringstream ss;
             ss << *(player->GetId());
-            boost::json::array pos = { dog->GetPosition().x, dog->GetPosition().y };
-            boost::json::array speed = { dog->GetSpeed().vx, dog->GetSpeed().vy };
-            boost::json::value jv_item = { {RESPONSE_DOG_POSITION, pos},
-                                    {RESPONSE_DOG_SPEED, speed},
-                                    {RESPONSE_DOG_DIRECTION, model::DIRECTION_TO_JSON.at(dog->GetDirection())} };
+            boost::json::array pos = {dog->GetPosition().x, dog->GetPosition().y};
+            boost::json::array speed = {dog->GetSpeed().vx, dog->GetSpeed().vy};
+            boost::json::value jv_item = {{RESPONSE_DOG_POSITION, pos},
+                                          {RESPONSE_DOG_SPEED, speed},
+                                          {RESPONSE_DOG_DIRECTION, std::string(model::DirectionToJson(dog->GetDirection()))}};
             obj[ss.str()] = jv_item;
         }
         jv.emplace_object()[RESPONSE_PLAYERS] = obj;

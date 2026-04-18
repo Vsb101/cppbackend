@@ -1,37 +1,49 @@
 #pragma once
+
+/**
+ * @file player.h
+ * @brief Модель игрока
+ */
+
 #include <string>
+#include <memory>
 
 #include "../model/game_session.h"
 #include "../other/tagged.h"
 
 namespace model {
 
+/**
+ * @brief Игрок в сессии
+ */
 class Player {
-  inline static size_t cntMaxId = 0;
-
  public:
-  using Id = util::Tagged<size_t, Player>;
-  Player(std::string name) : id_(Id{Player::cntMaxId++}), name_(name) {};
-  Player(Id id, std::string name) : id_(id), name_(name) {};
-  Player(const Player& other) = default;
-  Player(Player&& other) = default;
-  Player& operator=(const Player& other) = default;
-  Player& operator=(Player&& other) = default;
-  virtual ~Player() = default;
+    using Id = util::Tagged<size_t, Player>;
 
-  void SetGameSession(std::weak_ptr<GameSession> session);
-  void SetDog(std::weak_ptr<Dog> dog);
+    explicit Player(std::string name);
+    Player(Id id, std::string name);
 
-  const Id& GetId() const;
-  const std::string& GetName() const;
-  const model::GameSession::Id& GetSessionId() const;
-  std::weak_ptr<Dog> GetDog();
+    Player(const Player& other) = default;
+    Player(Player&& other) = default;
+    Player& operator=(const Player& other) = default;
+    Player& operator=(Player&& other) = default;
+    virtual ~Player() = default;
+
+    void SetGameSession(std::weak_ptr<GameSession> session);
+    void SetDog(std::weak_ptr<Dog> dog);
+
+    [[nodiscard]] const Id& GetId() const;
+    [[nodiscard]] const std::string& GetName() const;
+    [[nodiscard]] const model::GameSession::Id& GetSessionId() const;
+    [[nodiscard]] std::weak_ptr<Dog> GetDog();
 
  private:
-  Id id_;
-  std::string name_;
-  std::weak_ptr<GameSession> session_;
-  std::weak_ptr<Dog> dog_;
+    Id id_;
+    std::string name_;
+    std::weak_ptr<GameSession> session_;
+    std::weak_ptr<Dog> dog_;
+
+    inline static size_t cnt_max_id_ = 0;
 };
 
 }  // namespace model

@@ -41,5 +41,4 @@ namespace jsonOperation {
 
 	std::string OnlyPostMethodAllowed();															
 	std::optional< std::tuple<std::string, model::Map::Id> > ParseJoinToGame(const std::string& msg);	//Распарсить реквест входа в игру
-
 }
