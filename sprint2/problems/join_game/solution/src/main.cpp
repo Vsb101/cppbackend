@@ -65,7 +65,7 @@ int main(int argc, const char* argv[]) {
     signals.async_wait(
         [&ioc](const sys::error_code& ec, [[maybe_unused]] int signal_number) {
           if (!ec) {
-            BOOST_LOG_TRIVIAL(info) << logger::CreateLogMessage(
+            logger::LogInfo(
                 "server was forcibly closed."sv, logger::ExitCodeLog(0));
             ioc.stop();
           }
@@ -83,13 +83,13 @@ int main(int argc, const char* argv[]) {
     });
 
     // Эта надпись сообщает тестам о том, что сервер запущен и готов обрабатывать запросы
-    BOOST_LOG_TRIVIAL(info) << logger::CreateLogMessage(
+    logger::LogInfo(
         "server started"sv, logger::ServerAddrPortLog(address.to_string(), port));
 
     // 7. Запускаем обработку асинхронных операций
     RunWorkers(std::max(1u, num_threads), [&ioc] { ioc.run(); });
   } catch (const std::exception& ex) {
-    BOOST_LOG_TRIVIAL(error) << logger::CreateLogMessage(
+    logger::LogError(
         "error"sv, logger::ExceptionLog(EXIT_FAILURE, "Server not started"sv, ex.what()));
     return EXIT_FAILURE;
   }

@@ -6,7 +6,7 @@
 namespace http_server {
 
 void ErrorMessage(beast::error_code ec, std::string_view w) {
-  BOOST_LOG_TRIVIAL(error) << logger::CreateLogMessage(
+  logger::LogError(
       "error"sv, logger::ExceptionLog(0, ec.what(), w));
 }
 

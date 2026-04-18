@@ -1,113 +1,126 @@
 #pragma once
-#include <string>
-#include <string_view>
-#include <unordered_map>
+
+/**
+ * @file logging_handler.h
+ * @brief Структуры для JSON-логирования
+ */
+
 #include <boost/beast/http.hpp>
 #include <boost/json.hpp>
-#include <boost/date_time.hpp>
+
+#include <string>
+#include <string_view>
 
 namespace logger {
 
-    namespace beast = boost::beast;
-    namespace http = beast::http;
-    namespace json = boost::json;
-    using HttpRequest = http::request<http::string_body>;
-    using namespace std::literals;
+namespace beast = boost::beast;
+namespace http = beast::http;
+namespace json = boost::json;
 
-    const std::string IP = "ip";
-    const std::string URL = "URI";
-    const std::string METHOD = "method";
-    const std::string RESPONSE_TIME = "response_time";
-    const std::string CODE = "code";
-    const std::string CONTENT_TYPE = "content_type";
-    const std::string PORT = "port";
-    const std::string ADDRESS = "address";
-    const std::string TEXT = "text";
-    const std::string WHERE = "where";
-    const std::string TIMESTAMP = "timestamp";
-    const std::string DATA = "data";
-    const std::string MESSAGE = "message";
+using HttpRequest = http::request<http::string_body>;
 
-    struct RequestLog {
-        RequestLog(std::string ip_addr, const HttpRequest& req) :
-            ip(ip_addr),
-            url(req.target()),
-            method(req.method_string()) {};
+// Ключи JSON для логирования
+constexpr std::string_view kIp = "ip";
+constexpr std::string_view kUrl = "URI";
+constexpr std::string_view kMethod = "method";
+constexpr std::string_view kResponseTime = "response_time";
+constexpr std::string_view kCode = "code";
+constexpr std::string_view kContentType = "content_type";
+constexpr std::string_view kPort = "port";
+constexpr std::string_view kAddress = "address";
+constexpr std::string_view kText = "text";
+constexpr std::string_view kWhere = "where";
 
-        std::string ip;
-        std::string url;
-        std::string method;
-    };
+/**
+ * @brief Данные HTTP-запроса для логирования
+ */
+struct RequestLog {
+    RequestLog(std::string_view ip_addr, const HttpRequest& req)
+        : ip(ip_addr)
+        , url(req.target())
+        , method(std::string(req.method_string())) {}
 
-    void tag_invoke(boost::json::value_from_tag, boost::json::value& jv, const RequestLog& request);
+    std::string ip;  // Владей данными (безопаснее string_view)
+    std::string_view url;
+    std::string method;
+};
 
-    template <typename Body, typename Fields>
-    struct ResponseLog {
-        ResponseLog(std::string ip_addr, long res_time, const http::response<Body, Fields>& res) :
-            ip(ip_addr),
-            response_time(res_time),
-            code(res.result_int()),
-            content_type(res[http::field::content_type]) {};
+void tag_invoke(boost::json::value_from_tag,
+                boost::json::value& json_value,
+                const RequestLog& request);
 
-        std::string ip;
-        long response_time;
-        int code;
-        std::string content_type;
-    };
+/**
+ * @brief Данные HTTP-ответа для логирования
+ */
+template <typename Body, typename Fields>
+struct ResponseLog {
+    ResponseLog(std::string ip_addr,
+                long response_time,
+                const http::response<Body, Fields>& res)
+        : ip(std::move(ip_addr))
+        , response_time(response_time)
+        , code(res.result_int())
+        , content_type(std::string(res[http::field::content_type])) {}
 
-    template <typename Body, typename Fields>
-    void tag_invoke(boost::json::value_from_tag, boost::json::value& jv, const ResponseLog<Body, Fields>& response) {
-        jv = { {IP, json::value_from(response.ip)},
-                {RESPONSE_TIME, json::value_from(response.response_time)},
-                {CODE, json::value_from(response.code)},
-                {CONTENT_TYPE, json::value_from(response.content_type)} };
-    };
+    std::string ip;
+    long response_time;
+    int code;
+    std::string content_type;
+};
 
-    struct ServerAddrPortLog {
-        ServerAddrPortLog(std::string addr, uint32_t prt) :
-            address(addr), port(prt) {};
-
-        std::string address;
-        uint32_t port;
-    };
-
-    void tag_invoke(boost::json::value_from_tag, boost::json::value& jv, const ServerAddrPortLog& server_address);
-
-    struct ExceptionLog {
-        ExceptionLog(int code, std::string_view text, std::string_view where) :
-            code(code), text(text), where(where) {};
-
-        int code;
-        std::string_view text;
-        std::string_view where;
-    };
-
-    void tag_invoke(boost::json::value_from_tag, boost::json::value& jv, const ExceptionLog& exception);
-
-    struct ExitCodeLog {
-        int code;
-    };
-
-    void tag_invoke(boost::json::value_from_tag, boost::json::value& jv, ExitCodeLog const& exit_code);
-
-    template <class T>
-    struct LogMessage {
-        LogMessage(std::string_view msg, T&& custom_data) :
-            message(msg), data(custom_data) {
-            timestamp = boost::posix_time::to_iso_extended_string(boost::posix_time::microsec_clock::local_time());
-        };
-
-        std::string_view message;
-        T data;
-        std::string timestamp;
-    };
-
-    template <class T>
-    void tag_invoke(boost::json::value_from_tag, boost::json::value& jv, const LogMessage<T>& msg) {
-        jv = { {TIMESTAMP, json::value_from(msg.timestamp)},
-                {DATA, json::value_from(msg.data)},
-                {MESSAGE, json::value_from(msg.message)} };
-    };
-
+template <typename Body, typename Fields>
+void tag_invoke(boost::json::value_from_tag,
+                boost::json::value& json_value,
+                const ResponseLog<Body, Fields>& response) {
+    json_value = {{kIp, json::value_from(response.ip)},
+                  {kResponseTime, json::value_from(response.response_time)},
+                  {kCode, json::value_from(response.code)},
+                  {kContentType, json::value_from(response.content_type)}};
 }
+
+/**
+ * @brief Лог адреса и порта сервера
+ */
+struct ServerAddrPortLog {
+    ServerAddrPortLog(std::string addr, uint32_t port)
+        : address(std::move(addr)), port(port) {}
+
+    std::string address;
+    uint32_t port;
+};
+
+void tag_invoke(boost::json::value_from_tag,
+                boost::json::value& json_value,
+                const ServerAddrPortLog& server_address);
+
+/**
+ * @brief Лог исключения
+ */
+struct ExceptionLog {
+    ExceptionLog(int code, std::string_view text, std::string_view where)
+        : code(code), text(text), where(where) {}
+
+    int code;
+    std::string_view text;
+    std::string_view where;
+};
+
+void tag_invoke(boost::json::value_from_tag,
+                boost::json::value& json_value,
+                const ExceptionLog& exception);
+
+/**
+ * @brief Лог кода выхода
+ */
+struct ExitCodeLog {
+    explicit ExitCodeLog(int c) : code(c) {}
+
+    int code;
+};
+
+void tag_invoke(boost::json::value_from_tag,
+                boost::json::value& json_value,
+                const ExitCodeLog& exit_code);
+
+}  // namespace logger
 

@@ -58,7 +58,7 @@ class SessionBase {
         stream_, *safe_response,
         [safe_response, self](beast::error_code ec, std::size_t bytes_written) {
           self->OnWrite(safe_response->need_eof(), ec, bytes_written);
-          BOOST_LOG_TRIVIAL(info) << logger::CreateLogMessage(
+          logger::LogInfo(
               "response sent"sv, logger::ResponseLog<Body, Fields>(
                                      self->GetRemoteIp(),
                                      self->GetDurReceivedRequest(
@@ -113,7 +113,7 @@ class Session : public SessionBase,
   /*Из теории*/
   void HandleRequest(HttpRequest&& request) override {
     SetReqRecieveTime(boost::posix_time::microsec_clock::local_time());
-    BOOST_LOG_TRIVIAL(info) << logger::CreateLogMessage(
+    logger::LogInfo(
         "request received"sv, logger::RequestLog(GetRemoteIp(), request));
 
     // Захватываем умный указатель на текущий объект Session в лямбде,

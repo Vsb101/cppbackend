@@ -122,7 +122,7 @@ void GetStaticContentFile(const Request& req,
   const char* staticContentPtr = staticContentStr.c_str();
 
   if (sys::error_code ec; file.open(staticContentPtr, beast::file_mode::read, ec), ec) {
-    BOOST_LOG_TRIVIAL(error) << logger::CreateLogMessage(
+    logger::LogError(
         "error"sv,
         logger::ExceptionLog(0, "Failed to open static content file "sv, ec.what()));
   } else {

@@ -16,7 +16,7 @@ namespace json_loader {
     boost::json::value ReadJSONFile(const std::filesystem::path& json_path) {
         std::ifstream file(json_path);
         if (!file.is_open()) {
-            BOOST_LOG_TRIVIAL(error) << logger::CreateLogMessage("error"sv,
+            logger::LogError("error"sv,
                 logger::ExceptionLog(EXIT_FAILURE,
                     "Error: Can not open current file"sv, "Invalid path"sv)); 
             throw std::invalid_argument("Invalid path, can not open file");                         //Всё плохо, передан кривой путь. 
