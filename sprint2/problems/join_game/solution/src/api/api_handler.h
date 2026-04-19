@@ -69,7 +69,15 @@ private:
     template <typename Body, typename Allocator, typename Send>
     void ProcessRequest(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
         auto target = req.target();
-        if (target == "/api/v1/game/join"sv) {
+        if (target == "/api/v1/maps"sv || target == "/api/v1/maps/"sv) {
+            // GET список всех карт
+            if (req.method() == http::verb::get) {
+                HandleGetMaps(std::forward<Send>(send));
+            } else {
+                send(MakeJsonResponseWithAllow(http::status::method_not_allowed, 
+                    json::value{{"code", "invalidMethod"}, {"message", "Only GET method is allowed"}}, "GET"));
+            }
+        } else if (target == "/api/v1/game/join"sv) {
             if (req.method() == http::verb::post) {
                 HandleJoinGame(std::move(req), std::forward<Send>(send));
             } else {
@@ -163,9 +171,26 @@ private:
             // Формируем объект только с полем name
             json::object player_obj;
             player_obj["name"] = p->GetName();
-            res[std::to_string(*p->GetId())] = player_obj;
+            auto id = *p->GetId();
+            res[std::to_string(id)] = player_obj;
         }
         send(MakeJsonResponse(http::status::ok, res));
+    }
+
+    /**
+     * @brief GET /api/v1/maps
+     */
+    template <typename Send>
+    void HandleGetMaps(Send&& send) {
+        const auto& maps = app_.ListMaps();
+        json::array result;
+        for (const auto& map : maps) {
+            json::object map_obj;
+            map_obj["id"] = *map->GetId();
+            map_obj["name"] = map->GetName();
+            result.push_back(map_obj);
+        }
+        send(MakeJsonResponse(http::status::ok, result));
     }
 };
 

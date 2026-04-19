@@ -1,4 +1,4 @@
-#include <boost/json/src.hpp> // МЕГА-ВАЖНО: Добавьте это первой строкой!
+#include <boost/json/src.hpp> // МЕГА-ВАЖНО
 #include "json_serialization.h"
 
 namespace model {
