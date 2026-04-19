@@ -1,13 +1,7 @@
 #pragma once
 
-/**
- * @file game.h
- * @brief Модель игровой сессии
- */
-
 #include "../model/map.h"
 #include "../model/game_session.h"
-#include "../model/player.h"
 
 #include <memory>
 #include <vector>
@@ -15,31 +9,35 @@
 
 namespace model {
 
-/**
- * @brief Основная игра (контейнер карт и сессий)
- */
 class Game {
- public:
+public:
     using Maps = std::vector<std::shared_ptr<Map>>;
 
+    // Добавляет карту в игру
     void AddMap(Map map);
-    void AddMaps(const std::vector<Map>& maps);
 
-    [[nodiscard]] const Maps& GetMaps() const noexcept;
-    [[nodiscard]] std::shared_ptr<Map> FindMap(const Map::Id& id) const noexcept;
+    // Возвращает список всех карт
+    const Maps& GetMaps() const noexcept {
+        return maps_;
+    }
 
-    void AddGameSession(std::shared_ptr<GameSession> session);
-    [[nodiscard]] std::shared_ptr<GameSession> FindGameSessionBy(const Map::Id& id) const noexcept;
+    // Ищет карту по ID
+    std::shared_ptr<Map> FindMap(const Map::Id& id) const noexcept;
 
- private:
+    // Находит существующую сессию или создает новую для указанной карты
+    // ВАЖНО: Модель сама должна решать, создавать сессию или нет
+    std::shared_ptr<GameSession> GetSession(const Map::Id& id);
+
+    std::shared_ptr<GameSession> FindOrCreateSession(const Map::Id& id);
+
+private:
     using MapIdHasher = util::TaggedHasher<Map::Id>;
-    using MapIdToIndex = std::unordered_map<Map::Id, size_t, MapIdHasher>;
-    using MapIdToSessionIndex = std::unordered_map<Map::Id, size_t, MapIdHasher>;
 
     std::vector<std::shared_ptr<Map>> maps_;
-    MapIdToIndex map_id_to_index_;
-    std::vector<std::shared_ptr<GameSession>> sessions_;
-    MapIdToSessionIndex map_id_to_session_index_;
+    std::unordered_map<Map::Id, size_t, MapIdHasher> map_id_to_index_;
+    
+    // Карта ID_Карты -> Сессия
+    std::unordered_map<Map::Id, std::shared_ptr<GameSession>, MapIdHasher> sessions_;
 };
 
 }  // namespace model

@@ -1,69 +1,53 @@
-#include "../model/game_session.h"
+#include "game_session.h"
 #include <random>
-
-namespace randomgen {
-
-double RandomDouble(double min, double max) {
-    std::random_device rd;
-    std::default_random_engine eng(rd());
-    std::uniform_real_distribution<double> distr(min, max);
-    return distr(eng);
-}
-
-int RandomInt(int min, int max) {
-    std::random_device rd;
-    std::default_random_engine eng(rd());
-    std::uniform_int_distribution<int> distr(min, max);
-    return distr(eng);
-}
-
-}  // namespace randomgen
+#include <algorithm>
 
 namespace model {
 
-GameSession::GameSession(std::shared_ptr<Map> map, net::io_context& ioc)
+GameSession::GameSession(std::shared_ptr<Map> map)
     : map_(std::move(map))
-    , strand_(std::make_shared<SessionStrand>(net::make_strand(ioc)))
-    , id_(*map_->GetId()) {}
+    , id_(*(map_->GetId())) {}
 
 const GameSession::Id& GameSession::GetId() const noexcept {
     return id_;
 }
 
-std::shared_ptr<Map> GameSession::GetMap() {
+std::shared_ptr<Map> GameSession::GetMap() const noexcept {
     return map_;
 }
 
-std::shared_ptr<GameSession::SessionStrand> GameSession::GetStrand() {
-    return strand_;
+const std::vector<std::shared_ptr<Dog>>& GameSession::GetDogs() const noexcept {
+    return dogs_;
 }
 
-std::shared_ptr<Dog> GameSession::CreateDog(const std::string& dog_name) {
-    auto dog = std::make_shared<Dog>(dog_name);
-    dogs_.push_back(dog);
+std::shared_ptr<Dog> GameSession::CreateDog(const std::string& name) {
+    // Исправлено: передаем ID из счетчика
+    auto dog = std::make_shared<Dog>(Dog::Id{next_dog_id_++}, name);
     PutDogInRndPosition(dog);
+    dogs_.push_back(dog);
     return dog;
 }
 
 void GameSession::PutDogInRndPosition(std::shared_ptr<Dog> dog) {
     const auto& roads = map_->GetRoads();
-    if (roads.empty()) {
-        dog->SetPosition({0.0, 0.0});
-        return;
-    }
+    if (roads.empty()) return;
 
-    int road_index = randomgen::RandomInt(0, static_cast<int>(roads.size()) - 1);
-    const auto& road = roads[road_index];
+    static std::default_random_engine eng{std::random_device{}()};
+    std::uniform_int_distribution<size_t> road_dist(0, roads.size() - 1);
+    
+    const auto& road = roads[road_dist(eng)];
+    Point start = road.GetStart();
+    Point end = road.GetEnd();
 
-    double x, y;
     if (road.IsHorizontal()) {
-        x = randomgen::RandomDouble(road.GetStart().x, road.GetEnd().x);
-        y = road.GetStart().y;
+        if (start.x > end.x) std::swap(start.x, end.x);
+        std::uniform_real_distribution<double> x_dist(static_cast<double>(start.x), static_cast<double>(end.x));
+        dog->SetPosition({x_dist(eng), static_cast<double>(start.y)});
     } else {
-        y = randomgen::RandomDouble(road.GetStart().y, road.GetEnd().y);
-        x = road.GetStart().x;
+        if (start.y > end.y) std::swap(start.y, end.y);
+        std::uniform_real_distribution<double> y_dist(static_cast<double>(start.y), static_cast<double>(end.y));
+        dog->SetPosition({static_cast<double>(start.x), y_dist(eng)});
     }
-    dog->SetPosition({x, y});
 }
 
 }  // namespace model

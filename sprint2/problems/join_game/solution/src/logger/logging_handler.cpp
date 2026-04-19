@@ -1,34 +1,42 @@
-#include "../logger/logging_handler.h"
+#include "logging_handler.h"
 
 namespace logger {
 
 void tag_invoke(boost::json::value_from_tag,
                 boost::json::value& json_value,
                 const RequestLog& request) {
-    json_value = {{kIp, json::value_from(request.ip)},
-                  {kUrl, json::value_from(request.url)},
-                  {kMethod, json::value_from(request.method)}};
+    boost::json::object obj;
+    obj["ip"] = request.ip;
+    obj["URI"] = request.url; // Исправили uri -> url
+    obj["method"] = request.method;
+    json_value = std::move(obj);
 }
 
 void tag_invoke(boost::json::value_from_tag,
                 boost::json::value& json_value,
                 const ServerAddrPortLog& server_address) {
-    json_value = {{kPort, json::value_from(server_address.port)},
-                  {kAddress, json::value_from(server_address.address)}};
+    boost::json::object obj;
+    obj["address"] = server_address.address;
+    obj["port"] = server_address.port;
+    json_value = std::move(obj);
 }
 
 void tag_invoke(boost::json::value_from_tag,
                 boost::json::value& json_value,
                 const ExceptionLog& exception) {
-    json_value = {{kCode, json::value_from(exception.code)},
-                  {kText, json::value_from(exception.text)},
-                  {kWhere, json::value_from(exception.where)}};
+    boost::json::object obj;
+    obj["code"] = exception.code;
+    obj["text"] = exception.text;
+    obj["where"] = exception.where;
+    json_value = std::move(obj);
 }
 
 void tag_invoke(boost::json::value_from_tag,
                 boost::json::value& json_value,
                 const ExitCodeLog& exit_code) {
-    json_value = {{kCode, json::value_from(exit_code.code)}};
+    boost::json::object obj;
+    obj["code"] = exit_code.code;
+    json_value = std::move(obj);
 }
 
 }  // namespace logger

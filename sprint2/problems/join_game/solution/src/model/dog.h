@@ -1,92 +1,44 @@
 #pragma once
 
-/**
- * @file dog.h
- * @brief Модель собаки игрока
- */
-
 #include "../other/tagged.h"
-
 #include <string>
-#include <unordered_map>
 
 namespace model {
 
-/**
- * @brief Направление движения собаки
- */
-enum class Direction {
-    NORTH,  ///< Вверх
-    SOUTH,  ///< Вниз
-    WEST,   ///< Влево
-    EAST    ///< Вправо
-};
+enum class Direction { NORTH, SOUTH, WEST, EAST };
 
-/**
- * @brief Преобразование направления в JSON-строку
- */
-[[nodiscard]] constexpr std::string_view DirectionToJson(Direction direction) {
-    switch (direction) {
-        case Direction::NORTH: return "U";
-        case Direction::SOUTH: return "D";
-        case Direction::WEST:  return "L";
-        case Direction::EAST:  return "R";
-    }
-    return "U";
-}
+struct Position { double x, y; };
+struct Speed { double vx, vy; };
 
-/**
- * @brief Позиция на карте
- */
-struct Position {
-    double x;
-    double y;
-};
-
-/**
- * @brief Скорость движения
- */
-struct Speed {
-    double vx;
-    double vy;
-};
-
-/**
- * @brief Игровая собака
- */
 class Dog {
- public:
+public:
     using Id = util::Tagged<size_t, Dog>;
 
-    explicit Dog(std::string name);
-    Dog(Id id, std::string name);
+    // Убираем статический счетчик из класса. 
+    // ID должен приходить извне (например, от хранилища или БД)
+    Dog(Id id, std::string name)
+        : id_(std::move(id))
+        , name_(std::move(name)) {
+    }
 
-    Dog(const Dog& other) = default;
-    Dog(Dog&& other) = default;
-    Dog& operator=(const Dog& other) = default;
-    Dog& operator=(Dog&& other) = default;
-    virtual ~Dog() = default;
+    const Id& GetId() const { return id_; }
+    const std::string& GetName() const { return name_; }
 
-    [[nodiscard]] const Id& GetId() const;
-    [[nodiscard]] const std::string& GetName() const;
+    Direction GetDirection() const { return direction_; }
+    void SetDirection(Direction direction) { direction_ = direction; }
 
-    [[nodiscard]] Direction GetDirection() const;
-    void SetDirection(Direction direction);
+    const Position& GetPosition() const { return position_; }
+    void SetPosition(Position position) { position_ = position; }
 
-    [[nodiscard]] const Position& GetPosition() const;
-    void SetPosition(Position position);
+    const Speed& GetSpeed() const { return speed_; }
+    void SetSpeed(Speed speed) { speed_ = speed; }
 
-    [[nodiscard]] const Speed& GetSpeed() const;
-    void SetSpeed(Speed velocity);
-
- private:
+private:
     Id id_;
     std::string name_;
     Direction direction_{Direction::NORTH};
     Position position_{0.0, 0.0};
     Speed speed_{0.0, 0.0};
-
-    inline static size_t cnt_max_id_ = 0;
 };
 
 }  // namespace model

@@ -26,20 +26,25 @@ find_package(Threads REQUIRED)
 # Это упрощает поддержку — новые файлы добавляются автоматически
 file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.h")
 
-# Создаём исполняемый файл из всех найденных исходников
+# Создаём исполняемый файл
 add_executable(game_server ${SOURCES})
 
 # Пути для поиска заголовочных файлов
 target_include_directories(game_server PRIVATE
-    src                      # Корень исходников
-    ${CONAN_INCLUDE_DIRS}    # Зависимости из Conan
+    src
+    ${CONAN_INCLUDE_DIRS}
 )
 
 # Библиотеки для линковки
 target_link_libraries(game_server PRIVATE 
-    Threads::Threads         # Потоки (pthread)
-    ${CONAN_LIBS}            # Все зависимости из Conan (Boost, jsoncpp и др.)
+    Threads::Threads
+    ${CONAN_LIBS} # Основные либы из конана
+    # Явно добавляем компоненты лога, если линковщик их теряет в ${CONAN_LIBS}
+    boost_log
+    boost_log_setup
 )
 
-# Определение макроса для использования std::string_view в Boost.Beast
+# Макросы
 add_compile_definitions(BOOST_BEAST_USE_STD_STRING_VIEW)
+add_compile_definitions(BOOST_JSON_NO_LIB)
+add_compile_definitions(BOOST_LOG_DYN_LINK)

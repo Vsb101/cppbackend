@@ -1,73 +1,52 @@
-#include "../app/app.h"
+#include "app.h"
+#include <stdexcept>
 
 namespace app {
 
-const model::Game::Maps& Application::ListMap() const noexcept {
-    return game_.GetMaps();
-}
+using namespace std::literals;
 
-const std::shared_ptr<model::Map> Application::FindMap(
-    const model::Map::Id& id) const noexcept {
-    return game_.FindMap(id);
-}
-
-std::shared_ptr<model::GameSession> Application::GetOrCreateSession(
-    const model::Map::Id& id) {
-    auto session = game_.FindGameSessionBy(id);
-    if (session) {
-        return session;
+// Обязательно указываем полный путь к типам, если возникнут споры
+std::pair<Token, Player::Id> Application::JoinGame(
+    const std::string& player_name, 
+    const model::Map::Id& map_id
+) {
+    auto map = game_.FindMap(map_id);
+    if (!map) {
+        throw std::invalid_argument("Map not found"s);
     }
-    session = std::make_shared<model::GameSession>(game_.FindMap(id), ioc_);
-    game_.AddGameSession(session);
-    return session;
-}
 
-std::tuple<model::Token, model::Player::Id> Application::JoinGame(
-    const std::string& name, const model::Map::Id& id) {
-    auto player = CreatePlayer(name);
-    auto token = player_tokens_.AddPlayer(player);
+    auto session = game_.FindOrCreateSession(map_id);
+    auto dog = session->CreateDog(player_name);
 
-    auto session = GetOrCreateSession(id);
-    BindPlayerInSession(player, session);
-    return std::make_tuple(token, player->GetId());
-}
-
-std::shared_ptr<model::Player> Application::CreatePlayer(
-    std::string_view player_name) {
-    auto player = std::make_shared<model::Player>(std::string(player_name));
-    players_.push_back(player);
-    return player;
-}
-
-void Application::BindPlayerInSession(
-    std::shared_ptr<model::Player> player,
-    std::shared_ptr<model::GameSession> session) {
-    session_id_.try_emplace(session->GetId());
-    session_id_.at(session->GetId()).push_back(player);
+    Player::Id player_id{next_player_id_++};
+    auto player = std::make_shared<Player>(player_id, player_name);
     player->SetGameSession(session);
-    player->SetDog(session->CreateDog(player->GetName()));
+    player->SetDog(dog);
+
+    players_.push_back(player);
+
+    // Используем tokens_, который теперь есть в приватных полях
+    Token token = tokens_.AddPlayer(player);
+
+    return {token, player_id};
 }
 
-std::optional<std::vector<std::weak_ptr<model::Player>>>
-Application::GetPlayersFromSession(model::Token token) {
-    auto player = player_tokens_.FindPlayerByToken(token).lock();
-    if (!player) {
-        return std::nullopt;
+std::vector<std::shared_ptr<Player>> Application::GetPlayersInSession(const Token& token) const {
+    auto requester = tokens_.FindPlayerByToken(token);
+    
+    if (!requester) { // Теперь проверка (!) сработает
+        return {};
     }
-    auto session_id = player->GetSessionId();
-    auto it = session_id_.find(session_id);
-    if (it == session_id_.end()) {
-        return std::nullopt;
+
+    auto session = requester->GetSession();
+    std::vector<std::shared_ptr<Player>> result;
+    for (const auto& player : players_) {
+        if (player->GetSession() == session) {
+            result.push_back(player);
+        }
     }
-    return it->second;
+    return result;
 }
 
-bool Application::CheckPlayerByToken(model::Token token) {
-    return !player_tokens_.FindPlayerByToken(token).expired();
-}
-
-std::shared_ptr<Application::StrandApp> Application::GetStrand() {
-    return strand_;
-}
 
 }  // namespace app
