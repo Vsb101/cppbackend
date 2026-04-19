@@ -94,36 +94,42 @@ struct AllBounds {
     double min_y, max_y;
 };
 
-// В заголовочном файле тоже стоит поправить возвращаемое значение на AllBounds 
-// или просто структуру с 4 полями
 GameSession::Bounds GameSession::GetMovementBounds(Position pos) const {
     static constexpr double HALF_WIDTH = 0.4;
     
-    // Начальные границы — текущая точка
+    // По умолчанию считаем, что собака не может сдвинуться
     double min_x = pos.x, max_x = pos.x;
     double min_y = pos.y, max_y = pos.y;
 
-    // 1. Оптимизированный поиск по горизонтальным дорогам
-    int y_idx = static_cast<int>(std::round(pos.y));
-    for (const auto* road : map_->GetHorizontalRoadsAt(y_idx)) {
-        auto [x0, x1] = std::minmax(road->GetStart().x, road->GetEnd().x);
-        if (pos.y >= static_cast<double>(road->GetStart().y) - HALF_WIDTH && 
-            pos.y <= static_cast<double>(road->GetStart().y) + HALF_WIDTH) {
-            min_x = std::min(min_x, static_cast<double>(x0) - HALF_WIDTH);
-            max_x = std::max(max_x, static_cast<double>(x1) + HALF_WIDTH);
-        }
-    }
-    // 2. Оптимизированный поиск по вертикальным дорогам
-    int x_idx = static_cast<int>(std::round(pos.x));
-    for (const auto* road : map_->GetVerticalRoadsAt(x_idx)) {
-        auto [y0, y1] = std::minmax(road->GetStart().y, road->GetEnd().y);
-        if (pos.x >= static_cast<double>(road->GetStart().x) - HALF_WIDTH && 
-            pos.x <= static_cast<double>(road->GetStart().x) + HALF_WIDTH) {
-            min_y = std::min(min_y, static_cast<double>(y0) - HALF_WIDTH);
-            max_y = std::max(max_y, static_cast<double>(y1) + HALF_WIDTH);
-        }
-    }
+    bool first = true;
 
+    for (const auto& road : map_->GetRoads()) {
+        auto start = road.GetStart();
+        auto end = road.GetEnd();
+        
+        // Определяем границы "асфальта" для конкретной дороги
+        double r_min_x = std::min(static_cast<double>(start.x), static_cast<double>(end.x)) - HALF_WIDTH;
+        double r_max_x = std::max(static_cast<double>(start.x), static_cast<double>(end.x)) + HALF_WIDTH;
+        double r_min_y = std::min(static_cast<double>(start.y), static_cast<double>(end.y)) - HALF_WIDTH;
+        double r_max_y = std::max(static_cast<double>(start.y), static_cast<double>(end.y)) + HALF_WIDTH;
+
+        // Проверяем, находится ли текущая точка внутри этой дороги
+        if (pos.x >= r_min_x && pos.x <= r_max_x &&
+            pos.y >= r_min_y && pos.y <= r_max_y) {
+            
+            if (first) {
+                min_x = r_min_x; max_x = r_max_x;
+                min_y = r_min_y; max_y = r_max_y;
+                first = false;
+            } else {
+                // Если дорог несколько (перекресток), расширяем область дозволенного
+                min_x = std::min(min_x, r_min_x);
+                max_x = std::max(max_x, r_max_x);
+                min_y = std::min(min_y, r_min_y);
+                max_y = std::max(max_y, r_max_y);
+            }
+        }
+    }
     return {min_x, max_x, min_y, max_y};
 }
 
