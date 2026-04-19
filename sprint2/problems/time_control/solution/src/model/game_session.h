@@ -1,0 +1,45 @@
+#pragma once
+
+#include <memory>
+#include <vector>
+#include <string>
+
+#include "../other/tagged.h"
+#include "dog.h"
+#include "map.h"
+
+namespace model {
+
+class GameSession {
+ public:
+   using Id = util::Tagged<std::string, GameSession>;
+
+   explicit GameSession(std::shared_ptr<Map> map);
+
+   std::shared_ptr<Dog> CreateDog(const std::string& name);
+
+   [[nodiscard]] const Id& GetId() const noexcept;
+   [[nodiscard]] std::shared_ptr<Map> GetMap() const noexcept;
+   [[nodiscard]] const std::vector<std::shared_ptr<Dog>>& GetDogs() const noexcept;
+
+   // Обновление состояния за время dt
+   void Update(double dt_seconds);
+
+ private:
+   std::shared_ptr<Map> map_;
+   Id id_;
+   std::vector<std::shared_ptr<Dog>> dogs_;
+   size_t next_dog_id_ = 0; // Добавили поле счетчика
+   
+   // Находит границы дорожного полотна в текущей позиции собаки по направлению движения
+   struct Bounds {
+      double min_x, max_x;
+      double min_y, max_y;
+   };
+
+   Bounds GetMovementBounds(Position pos) const;
+
+   void PutDogInRndPosition(std::shared_ptr<Dog> dog);
+};
+
+}  // namespace model
