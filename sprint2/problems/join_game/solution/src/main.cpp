@@ -83,7 +83,7 @@ int main(int argc, const char* argv[]) {
                                                         ? std::string(config::kDefaultStatic)
                                                         : static_path;
 
-        // 3. Инициализация io_context
+        // Инициализация io_context
         const unsigned num_threads = std::thread::hardware_concurrency();
         net::io_context ioc(num_threads);
         app::Application application(std::move(game), ioc);

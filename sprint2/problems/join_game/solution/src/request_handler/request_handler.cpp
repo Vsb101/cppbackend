@@ -1,3 +1,5 @@
 #include "request_handler.h"
 
-namespace requestHandler {}  // namespace requestHandler
+namespace http_handler {
+// Реализация методов, если понадобится
+}  // namespace http_handler
