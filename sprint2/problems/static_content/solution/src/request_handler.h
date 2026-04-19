@@ -1,242 +1,178 @@
 #pragma once
 
-#include "http_server.h"
-#include "model.h"
-
-#include <functional>
-#include <optional>
-#include <string>
 #include <filesystem>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <boost/beast/http.hpp>
+#include <boost/algorithm/string.hpp>
+#include "api/api_handler.h"
+#include "app/app.h"
 
 namespace http_handler {
 
-namespace beast = boost::beast;
-namespace http = beast::http;
+namespace http = boost::beast::http;
+namespace fs = std::filesystem;
+using namespace std::literals;
 
-/**
- * @brief Сериализует объект карты в JSON-формат для передачи по HTTP.
- *
- * Преобразует модель карты (модуль model::Map) в строку JSON, содержащую:
- * - id: уникальный идентификатор карты
- * - name: читаемое название
- * - roads: массив дорог (с координатами начала и конца)
- * - buildings: массив зданий (с позицией и размерами)
- * - offices: массив офисов (с координатами и смещениями для UI)
- *
- * ВАЖНО: Этот метод используется для эндпоинта /api/v1/maps/{id}.
- *
- * Пример результата:
- * @code
- * {
- *   "id": "map1",
- *   "name": "First Map",
- *   "roads": [
- *     {"x0": 0, "y0": 0, "x1": 10},
- *     {"x0": 5, "y0": 5, "y1": 20}
- *   ],
- *   "buildings": [
- *     {"x": 5, "y": 5, "w": 30, "h": 20}
- *   ],
- *   "offices": [
- *     {"id": "o1", "x": 100, "y": 200, "offsetX": 5, "offsetY": 0}
- *   ]
- * }
- * @endcode
- *
- * @param map Константная ссылка на карту (не изменяется)
- * @return std::string — сериализованная JSON-строка
- */
-std::string MapToJson(const model::Map& map);
+// Вспомогательные функции для работы со статикой
+namespace static_utils {
 
-/**
- * @brief Сериализует список всех карт в краткий JSON-массив.
- *
- * Используется для эндпоинта GET /api/v1/maps.
- * Возвращает только id и name каждой карты — минимальная информация для отображения списка.
- *
- * Пример:
- * [{"id": "map1", "name": "First Map"}, {"id": "map2", "name": "Second Map"}]
- *
- * @param game Ссылка на игровую модель, содержащую карты
- * @return JSON-строка с массивом объектов {id, name}
- */
-std::string MapsListToJson(const model::Game& game);
+// Определение MIME-типа по расширению (без учета регистра)
+inline std::string_view GetMimeType(const fs::path& path) {
+    using boost::iequals;
+    auto ext = path.extension().string();
+    
+    if (iequals(ext, ".htm") || iequals(ext, ".html")) return "text/html"sv;
+    if (iequals(ext, ".css")) return "text/css"sv;
+    if (iequals(ext, ".txt")) return "text/plain"sv;
+    if (iequals(ext, ".js")) return "text/javascript"sv;
+    if (iequals(ext, ".json")) return "application/json"sv;
+    if (iequals(ext, ".xml")) return "application/xml"sv;
+    if (iequals(ext, ".png")) return "image/png"sv;
+    if (iequals(ext, ".jpg") || iequals(ext, ".jpe") || iequals(ext, ".jpeg")) return "image/jpeg"sv;
+    if (iequals(ext, ".gif")) return "image/gif"sv;
+    if (iequals(ext, ".bmp")) return "image/bmp"sv;
+    if (iequals(ext, ".ico")) return "image/vnd.microsoft.icon"sv;
+    if (iequals(ext, ".tiff") || iequals(ext, ".tif")) return "image/tiff"sv;
+    if (iequals(ext, ".svg") || iequals(ext, ".svgz")) return "image/svg+xml"sv;
+    if (iequals(ext, ".mp3")) return "audio/mpeg"sv;
+    
+    return "application/octet-stream"sv;
+}
 
-/**
- * @class RequestHandler
- * @brief Центральный обработчик HTTP-запросов.
- *
- * Основная задача — маршрутизация запросов:
- * - API-запросы (/api/...) → обрабатываются как данные
- * - Статические файлы (/, /css/style.css) → раздаются как файлы
- *
- * Поддерживаемые методы: GET, HEAD.
- * Все остальные — ответ 405 Method Not Allowed.
- *
- * Особенности:
- * - Является "владельцем" ссылки на model::Game — единственный способ доступа к данным.
- * - Не поддерживает копирование (удалены конструктор копирования и оператор присваивания).
- * - Использует шаблонный operator() для совместимости с Boost.Beast.
- *
- * УЧЕБНЫЙ АСПЕКТ:
- * Такой подход позволяет инкапсулировать логику обработки запросов,
- * не раскрывая детали реализации сервера.
- */
+// Декодирование URL (%20 -> пробел и т.д.)
+inline std::string DecodeUrl(std::string_view url) {
+    std::string res;
+    res.reserve(url.size());
+    for (size_t i = 0; i < url.size(); ++i) {
+        if (url[i] == '%' && i + 2 < url.size()) {
+            char high = url[i + 1];
+            char low = url[i + 2];
+            if (std::isxdigit(high) && std::isxdigit(low)) {
+                auto hex_to_int = [](char c) {
+                    if (c >= '0' && c <= '9') return c - '0';
+                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                    return 0;
+                };
+                res += static_cast<char>(hex_to_int(high) * 16 + hex_to_int(low));
+                i += 2;
+                continue;
+            }
+        }
+        res += (url[i] == '+' ? ' ' : url[i]);
+    }
+    return res;
+}
+
+// Проверка, что путь находится внутри корневого каталога
+inline bool IsSubPath(fs::path path, fs::path base) {
+    path = fs::weakly_canonical(path);
+    base = fs::weakly_canonical(base);
+    for (auto b = base.begin(), p = path.begin(); b != base.end(); ++b, ++p) {
+        if (p == path.end() || *p != *b) return false;
+    }
+    return true;
+}
+
+} // namespace static_utils
+
 class RequestHandler {
 public:
-    /**
-     * @brief Конструктор обработчика.
-     * @param game Ссылка на общую модель игры (хранит карты)
-     * @param static_files_root Путь к папке со статическими файлами (HTML, CSS, JS)
-     *
-     * Пример: если static_files_root = "/var/www", то запрос /index.html
-     * будет направлен на файл /var/www/index.html.
-     */
-    explicit RequestHandler(model::Game& game, const std::filesystem::path& static_files_root);
+    explicit RequestHandler(app::Application& application, fs::path static_content_path)
+        : application_{application}
+        , static_content_path_{fs::weakly_canonical(std::move(static_content_path))}
+        , api_handler_{application} {}
 
-    // Инвалидация кэша при изменении карт (если понадобится)
-    void InvalidateCache();
-
-    // Запрещаем копирование — объект должен быть единственным
-    RequestHandler(const RequestHandler&) = delete;
-    RequestHandler& operator=(const RequestHandler&) = delete;
-
-    /**
-     * @brief Шаблонный вызываемый оператор — точка входа для запроса.
-     *
-     * Вызывается фреймворком Boost.Beast при получении HTTP-запроса.
-     *
-     * Параметры шаблона:
-     * - Body: тип тела запроса (например, string_body, empty_body)
-     * - Allocator: аллокатор заголовков
-     * - Send: функция обратного вызова для отправки ответа
-     *
-     * Логика:
-     * 1. Извлекает target (URI) из запроса.
-     * 2. Проверяет метод: только GET и HEAD разрешены.
-     * 3. Роутинг:
-     *    - /api/v1/maps → HandleMapsList или HandleMapById
-     *    - /api/... (другое) → 400 Bad Request
-     *    - всё остальное → статический файл
-     *
-     * @param req Полученный HTTP-запрос
-     * @param send Функция: принимает response и отправляет клиенту
-     */
     template <typename Body, typename Allocator, typename Send>
-    void operator()(
-        http::request<Body, http::basic_fields<Allocator>>&& req,
-        Send&& send) {
-        std::string target(req.target());
-        if (!target.empty() && target[0] == '/') {
-            target = target.substr(1);  // убираем начальный '/'
+    void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
+        if (req.target().starts_with("/api/")) {
+            return api_handler_(std::forward<decltype(req)>(req), std::forward<Send>(send));
         }
-
-        // Поддерживаем только GET и HEAD
-        if (req.method() != http::verb::get && req.method() != http::verb::head) {
-            send(MakeMethodNotAllowedResponse(req));
-            return;
-        }
-
-        // API: /api/v1/maps
-        if (target.rfind("api/v1/maps", 0) == 0) {
-            HandleApiMaps(std::move(req), std::forward<Send>(send), target.substr(11));
-        }
-        // Другие API-пути — запрещены
-        else if (target.rfind("api/", 0) == 0) {
-            send(MakeBadRequestResponse(req));
-        }
-        // Статические файлы
-        else {
-            HandleStaticFile(req, std::forward<Send>(send), target);
-        }
+        HandleStatic(std::forward<decltype(req)>(req), std::forward<Send>(send));
     }
 
 private:
-    model::Game& game_;                    ///< Ссылка на модель игры
-    std::filesystem::path static_files_root_;  ///< Корень статики (например, ./static)
+    // Вспомогательный метод для создания текстовых ответов об ошибках
+    static http::response<http::string_body> MakeErrorResponse(
+        http::status status, std::string_view body, unsigned version, std::string_view content_type = "text/plain"sv) {
+        http::response<http::string_body> res{status, version};
+        res.set(http::field::content_type, content_type);
+        res.body() = body;
+        res.prepare_payload();
+        return res;
+    }
 
-    // === КЭШИРОВАНИЕ ===
-    mutable std::unordered_map<std::string, std::string> map_json_cache_;
-    mutable std::string maps_list_json_;
-    mutable bool maps_list_cache_valid_ = false;
+    template <typename Body, typename Allocator, typename Send>
+    void HandleStatic(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
+        const auto version = req.version();
+        const auto method = req.method();
 
-    /**
-     * @brief Универсальный шаблон для создания HTTP-ответа.
-     *
-     * Инкапсулирует общую логику:
-     * - Установка статуса
-     * - Content-Type
-     * - Content-Length
-     * - keep-alive
-     * - Тело (не отправляется при HEAD)
-     *
-     * @tparam Body Тип тела исходного запроса
-     * @param status Код ответа (200, 404 и т.д.)
-     * @param body Тело ответа (может быть пустым для HEAD)
-     * @param content_type MIME-тип содержимого
-     * @param req Исходный запрос (для keep_alive)
-     * @return Готовый HTTP-ответ
-     */
-    template<typename Body>
-    http::response<http::string_body> MakeResponse(
-        http::status status,
-        std::string_view body,
-        std::string_view content_type,
-        const http::request<Body>& req);
+        // 1. Декодируем и формируем абсолютный путь
+        std::string decoded_url = static_utils::DecodeUrl(req.target());
+        
+        // Убираем параметры запроса, если они есть (все после ?)
+        std::string_view path_view = decoded_url;
+        if (auto pos = path_view.find('?'); pos != std::string_view::npos) {
+            path_view = path_view.substr(0, pos);
+        }
 
-    // === API Обработчики ===
+        fs::path rel_path{path_view.substr(1)}; // убираем ведущий slash
+        fs::path abs_path = fs::weakly_canonical(static_content_path_ / rel_path);
 
-    /**
-     * @brief Обрабатывает часть пути после /api/v1/maps
-     * @param req Исходный запрос
-     * @param send Callback для отправки ответа
-     * @param path_suffix Часть пути после "api/v1/maps" (например, "/map1")
-     */
-    void HandleApiMaps(
-        http::request<http::string_body>&& req,
-        std::function<void(http::response<http::string_body>&&)>&& send,
-        std::string_view path_suffix);
+        // 2. Если путь — директория, ищем index.html
+        if (fs::is_directory(abs_path)) {
+            abs_path /= "index.html"sv;
+        }
 
-    /// Обрабатывает GET /api/v1/maps — возвращает список карт
-    http::response<http::string_body> HandleMapsList(const http::request<http::string_body>& req);
+        // 3. Проверка безопасности: не вышли ли за пределы корня статики
+        if (!static_utils::IsSubPath(abs_path, static_content_path_)) {
+            return send(MakeErrorResponse(http::status::bad_request, "Bad Request"sv, version));
+        }
 
-    /// Обрабатывает GET /api/v1/maps/{id} — возвращает полное описание карты
-    http::response<http::string_body> HandleMapById(const http::request<http::string_body>& req, std::string_view map_id);
+        // 4. Пытаемся открыть файл
+        http::file_body::value_type file;
+        boost::system::error_code ec;
+        file.open(abs_path.string().c_str(), boost::beast::file_mode::read, ec);
 
-    // === Статические файлы ===
+        if (ec) {
+            if (ec == boost::system::errc::no_such_file_or_directory) {
+                return send(MakeErrorResponse(http::status::not_found, "File Not Found"sv, version));
+            }
+            return send(MakeErrorResponse(http::status::internal_server_error, "Internal Error"sv, version));
+        }
 
-    /// Обрабатывает запрос к статическому файлу (HTML, CSS, JS и т.д.)
-    void HandleStaticFile(
-        const http::request<http::string_body>& req,
-        std::function<void(http::response<http::string_body>&&)>&& send,
-        std::string_view target);
+        // 5. Формируем ответ
+        auto size = file.size();
+        auto mime_type = static_utils::GetMimeType(abs_path);
 
-    /// Определяет MIME-тип по расширению файла
-    std::string GetMimeType(std::string_view path);
+        if (method == http::verb::get || method == http::verb::head) {
+            // Для HEAD метода используем empty_body, но указываем размер
+            if (method == http::verb::head) {
+                http::response<http::empty_body> res{http::status::ok, version};
+                res.set(http::field::content_type, mime_type);
+                res.content_length(size);
+                return send(std::move(res));
+            }
 
-    /// Декодирует URL-кодированные символы (%20 → пробел, + → пробел)
-    std::string UrlDecode(std::string_view str);
+            // Для GET отдаем файл целиком
+            http::response<http::file_body> res{
+                std::piecewise_construct,
+                std::make_tuple(std::move(file)),
+                std::make_tuple(http::status::ok, version)};
+            res.set(http::field::content_type, mime_type);
+            res.content_length(size);
+            return send(std::move(res));
+        }
 
-    /// Проверяет, что путь находится внутри корневой директории (защита от path traversal)
-    bool IsSubPath(const std::filesystem::path& path) const;
+        // Для прочих методов (если они дошли до сюда)
+        return send(MakeErrorResponse(http::status::method_not_allowed, "Method Not Allowed"sv, version));
+    }
 
-    /// Читает содержимое файла в строку
-    std::optional<std::string> ReadFileContent(const std::filesystem::path& path) const;
-
-    /// Создаёт ответ с содержимым файла
-    http::response<http::string_body> MakeFileResponse(
-        const std::string& content,
-        const std::filesystem::path& path,
-        const http::request<http::string_body>& req);
-
-    /// Создаёт ответ с ошибкой 400 Bad Request
-    http::response<http::string_body> MakeBadRequestResponse(const http::request<http::string_body>& req);
-
-    /// Создаёт ответ с ошибкой 404 Not Found
-    http::response<http::string_body> MakeNotFoundResponse(const http::request<http::string_body>& req);
-
-    /// Создаёт ответ с ошибкой 405 Method Not Allowed
-    http::response<http::string_body> MakeMethodNotAllowedResponse(const http::request<http::string_body>& req);
+    app::Application& application_;
+    fs::path static_content_path_;
+    http_handler::ApiHandler api_handler_; 
 };
 
-}  // namespace http_handler
+} // namespace http_handler
