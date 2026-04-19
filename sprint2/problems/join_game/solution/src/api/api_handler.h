@@ -42,6 +42,17 @@ private:
     }
 
     /**
+     * @brief Создание JSON-ответа с дополнительным заголовком Allow
+     */
+    template <typename Value>
+    static http::response<http::string_body> MakeJsonResponseWithAllow(
+        http::status status, const Value& body, std::string_view allow_header) {
+        auto response = MakeJsonResponse(status, body);
+        response.set(http::field::allow, allow_header);
+        return response;
+    }
+
+    /**
      * @brief Извлечение токена из заголовка Authorization: Bearer <token>
      */
     static std::optional<app::Token> TryExtractToken(std::string_view auth_header) {
@@ -62,16 +73,16 @@ private:
             if (req.method() == http::verb::post) {
                 HandleJoinGame(std::move(req), std::forward<Send>(send));
             } else {
-                send(MakeJsonResponse(http::status::method_not_allowed, 
-                    json::value{{"code", "invalidMethod"}, {"message", "Only POST is allowed"}}));
+                send(MakeJsonResponseWithAllow(http::status::method_not_allowed, 
+                    json::value{{"code", "invalidMethod"}, {"message", "Only POST is allowed"}}, "POST"));
             }
         } else if (target == "/api/v1/game/players"sv) {
             // ТЗ обычно требует GET или HEAD для списка игроков
             if (req.method() == http::verb::get || req.method() == http::verb::head) {
                 HandleGetPlayers(std::move(req), std::forward<Send>(send));
             } else {
-                send(MakeJsonResponse(http::status::method_not_allowed, 
-                    json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}));
+                send(MakeJsonResponseWithAllow(http::status::method_not_allowed, 
+                    json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"));
             }
         } else {
             send(MakeJsonResponse(http::status::bad_request, 
@@ -84,22 +95,48 @@ private:
      */
     template <typename Body, typename Allocator, typename Send>
     void HandleJoinGame(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
+        // Попытка парсинга JSON
+        std::optional<json::value> body_opt;
         try {
-            auto body = json::parse(req.body());
+            body_opt = json::parse(req.body());
+        } catch (...) {
+            return send(MakeJsonResponse(http::status::bad_request, 
+                json::value{{"code", "invalidArgument"}, {"message", "Join game request parse error"}}));
+        }
+        
+        if (!body_opt) {
+            return send(MakeJsonResponse(http::status::bad_request, 
+                json::value{{"code", "invalidArgument"}, {"message", "Join game request parse error"}}));
+        }
+        
+        const auto& body = *body_opt;
+        
+        // Проверка наличия необходимых полей
+        std::optional<std::string> name_opt;
+        std::optional<std::string> map_id_opt;
+        try {
             auto name = body.at("userName").as_string();
             auto map_id = body.at("mapId").as_string();
-            
-            if (name.empty()) {
-                return send(MakeJsonResponse(http::status::bad_request, 
-                    json::value{{"code", "invalidArgument"}, {"message", "Invalid name"}}));
-            }
-            
-            auto [token, player_id] = app_.JoinGame(std::string(name), model::Map::Id{std::string(map_id)});
-            
+            name_opt = std::string(name);
+            map_id_opt = std::string(map_id);
+        } catch (...) {
+            return send(MakeJsonResponse(http::status::bad_request, 
+                json::value{{"code", "invalidArgument"}, {"message", "Join game request parse error"}}));
+        }
+        
+        // Проверка пустого имени
+        if (name_opt->empty()) {
+            return send(MakeJsonResponse(http::status::bad_request, 
+                json::value{{"code", "invalidArgument"}, {"message", "Invalid name"}}));
+        }
+        
+        // Пытаемся добавить игрока в игру
+        try {
+            auto [token, player_id] = app_.JoinGame(*name_opt, model::Map::Id{*map_id_opt});
             send(MakeJsonResponse(http::status::ok, 
                 json::value{{"authToken", *token}, {"playerId", *player_id}}));
-        } catch (...) {
-            send(MakeJsonResponse(http::status::not_found, 
+        } catch (const std::exception&) {
+            return send(MakeJsonResponse(http::status::not_found, 
                 json::value{{"code", "mapNotFound"}, {"message", "Map not found"}}));
         }
     }
@@ -123,7 +160,10 @@ private:
         
         json::object res;
         for (const auto& p : players) {
-            res[std::to_string(*p->GetId())] = json::value_from(*p);
+            // Формируем объект только с полем name
+            json::object player_obj;
+            player_obj["name"] = p->GetName();
+            res[std::to_string(*p->GetId())] = player_obj;
         }
         send(MakeJsonResponse(http::status::ok, res));
     }

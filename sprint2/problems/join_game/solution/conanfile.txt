@@ -2,5 +2,13 @@
 boost/1.78.0
 jsoncpp/1.9.5
 
+[options]
+boost:without_log=False
+boost:without_filesystem=False
+boost:without_system=False
+boost:without_thread=False
+boost:without_date_time=False
+boost:without_chrono=False
+
 [generators]
 cmake
