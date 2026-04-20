@@ -49,6 +49,38 @@
       });
     }
 
-    loadMap(Cookies.get('mapId'));
+    // Функция входа в игру - получает токен и playerId
+    function joinGame(mapId, callback) {
+      $.post({
+        url: '/api/v1/game/join',
+        dataType: 'json',
+        contentType: "application/json",
+        data: JSON.stringify({
+          userName: 'Player' + Math.floor(Math.random() * 1000),
+          mapId: mapId
+        })
+      }).done(function(data) {
+        // Сохраняем токен и playerId в куки
+        Cookies.set('authToken', data.authToken, { expires: 7 });
+        Cookies.set('playerId', data.playerId, { expires: 7 });
+        Cookies.set('mapId', mapId, { expires: 7 });
+        callback();
+      });
+    }
+
+    // Проверяем, есть ли уже токен, если нет - получаем новый
+    if (Cookies.get('authToken') && Cookies.get('playerId')) {
+      // Токен уже есть, загружаем карту
+      loadMap(Cookies.get('mapId'));
+    } else {
+      // Нужно получить токен - загружаем список карт для выбора
+      loadMapList(function(maps) {
+        // Для простоты выбираем первую карту
+        var firstMap = maps[0].id;
+        joinGame(firstMap, function() {
+          loadMap(firstMap);
+        });
+      });
+    }
   </script>
 </html>

@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <utility>
 
 #include "../other/tagged.h"
 #include "dog.h"
@@ -31,13 +32,14 @@ class GameSession {
    std::vector<std::shared_ptr<Dog>> dogs_;
    size_t next_dog_id_ = 0; // Добавили поле счетчика
    
-   // Находит границы дорожного полотна в текущей позиции собаки по направлению движения
-   struct Bounds {
-      double min_x, max_x;
-      double min_y, max_y;
-   };
+   // Находит дорогу, на которой находится собака
+   const Road* FindRoadAndBounds(Position pos) const;
 
-   Bounds GetMovementBounds(Position pos) const;
+   // Находит все дороги в позиции (для перекрёстков)
+   std::vector<const Road*> FindRoadsAtPosition(Position pos) const;
+   
+   // Проверяет, находится ли точка в пределах дороги
+   bool IsPositionOnRoad(Position pos, const Road& road) const;
 
    void PutDogInRndPosition(std::shared_ptr<Dog> dog);
 };

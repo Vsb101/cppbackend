@@ -1,6 +1,7 @@
 #include "app.h"
-#include "player.h" // Теперь подключаем здесь
+#include "player.h"
 #include <stdexcept>
+#include <iostream>
 
 namespace app {
 
@@ -52,17 +53,26 @@ std::vector<std::shared_ptr<Player>> Application::GetPlayersInSession(const Toke
     return result;
 }
 
-void Application::MovePlayer(const Token& token, std::string_view move_cmd) {
+void Application::MovePlayer(const Token& token, std::string_view m
+    ove_cmd) {
     std::lock_guard lock(mutex_);
     auto player = tokens_.FindPlayerByToken(token);
-    if (!player) return;
+    if (!player) {
+        std::clog << "[MovePlayer] Token not found" << std::endl;
+        return;
+    }
 
     auto session = player->GetSession();
     auto dog = player->GetDog();
-    if (!session || !dog) return;
+    if (!session || !dog) {
+        std::clog << "[MovePlayer] Session or dog not found" << std::endl;
+        return;
+    }
 
     double speed_val = session->GetMap()->GetDogSpeed();
     if (speed_val == 0.0) speed_val = game_.GetDefaultDogSpeed();
+    
+    std::clog << "[MovePlayer] Setting speed: " << speed_val << " for move: " << move_cmd << std::endl;
 
     if (move_cmd == "L"sv) { 
         dog->SetSpeed({-speed_val, 0.0}); 

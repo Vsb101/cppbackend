@@ -1,10 +1,10 @@
 #pragma once
 
-#include <boost/log/trivial.hpp>
 #include <boost/json.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <string_view>
 #include <string>
+#include <iostream>
 #include "logging_handler.h"
 
 namespace logger {
@@ -31,17 +31,17 @@ inline void LogInfo(std::string_view msg) {
     obj["timestamp"] = boost::posix_time::to_iso_extended_string(
         boost::posix_time::microsec_clock::local_time());
     obj["message"] = std::string(msg);
-    BOOST_LOG_TRIVIAL(info) << json::serialize(obj);
+    std::clog << json::serialize(obj) << std::endl;
 }
 
 template <typename T>
 inline void LogInfo(std::string_view msg, const T& data) {
-    BOOST_LOG_TRIVIAL(info) << CreateLogMessage(msg, data);
+    std::clog << CreateLogMessage(msg, data) << std::endl;
 }
 
 template <typename T>
 inline void LogError(std::string_view msg, const T& data) {
-    BOOST_LOG_TRIVIAL(error) << CreateLogMessage(msg, data);
+    std::clog << CreateLogMessage(msg, data) << std::endl;
 }
 
 }  // namespace logger

@@ -66,9 +66,9 @@ private:
         }
         
         if (target.starts_with("/api/v1/maps/"sv)) {
+            std::string map_id = std::string(target.substr("/api/v1/maps/"sv.size()));
             if (method == http::verb::get || method == http::verb::head) {
-                auto map_id = target.substr("/api/v1/maps/"sv.size());
-                return HandleGetMapById(std::string(map_id), std::forward<Send>(send));
+                return HandleGetMapById(map_id, std::forward<Send>(send));
             }
             return send(MakeJsonResponseWithAllow(http::status::method_not_allowed, 
                 json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"));

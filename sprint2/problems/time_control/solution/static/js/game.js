@@ -91,6 +91,19 @@ class GameState {
 
     let self = this;
 
+    // Отправляем tick запрос на сервер
+    $.post({
+      url: '/api/v1/game/tick',
+      dataType: 'json',
+      contentType: "application/json",
+      data: JSON.stringify({
+        timeDelta: 16  // ~60 FPS (1000ms / 60 ≈ 16ms)
+      }),
+      beforeSend: function (xhr) {
+        xhr.setRequestHeader ("Authorization", "Bearer " + Cookies.get('authToken'));
+      }
+    });
+
     if (!this.started)
       return false;
 
