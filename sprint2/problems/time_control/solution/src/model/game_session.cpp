@@ -53,49 +53,84 @@ void GameSession::PutDogInRndPosition(std::shared_ptr<Dog> dog) {
 
 void GameSession::Update(double dt_seconds) {
     static constexpr double HALF_WIDTH = 0.4;
+    static constexpr double EPS = 1e-9;
 
     for (auto& dog : dogs_) {
-        const auto& pos = dog->GetPosition();
-        const auto& speed = dog->GetSpeed();
+        auto speed = dog->GetSpeed();
         if (speed.vx == 0 && speed.vy == 0) continue;
 
-        auto roads = FindRoadsAtPosition(pos);
-        if (roads.empty()) continue;
-
-        // Считаем максимально возможные границы из всех дорог под собакой
-        double min_x = 1e9, max_x = -1e9, min_y = 1e9, max_y = -1e9;
-        for (const auto* r : roads) {
-            auto s = r->GetStart();
-            auto e = r->GetEnd();
-            auto [x1, x2] = std::minmax({(double)s.x, (double)e.x});
-            auto [y1, y2] = std::minmax({(double)s.y, (double)e.y});
-            
-            min_x = std::min(min_x, x1 - HALF_WIDTH);
-            max_x = std::max(max_x, x2 + HALF_WIDTH);
-            min_y = std::min(min_y, y1 - HALF_WIDTH);
-            max_y = std::max(max_y, y2 + HALF_WIDTH);
-        }
-
-        Position next_pos = {pos.x + speed.vx * dt_seconds, pos.y + speed.vy * dt_seconds};
+        double remaining_dt = dt_seconds;
         
-        // ВАЖНО: Ограничиваем движение только по той оси, по которой идем
-        if (speed.vx != 0) {
-            next_pos.y = pos.y; // Фиксируем перпендикулярную ось
-            if (next_pos.x < min_x || next_pos.x > max_x) {
-                next_pos.x = std::clamp(next_pos.x, min_x, max_x);
-                dog->SetSpeed({0, 0});
+        // Цикл позволяет проехать через несколько стыкующихся дорог за один тик
+        while (remaining_dt > EPS) {
+            Position pos = dog->GetPosition();
+            auto roads = FindRoadsAtPosition(pos);
+            
+            if (roads.empty()) break; // Собака вне дорог — стоп
+
+            // Определяем границы текущего "коридора"
+            double min_x = 1e9, max_x = -1e9, min_y = 1e9, max_y = -1e9;
+            for (const auto* r : roads) {
+                auto s = r->GetStart();
+                auto e = r->GetEnd();
+                auto [x1, x2] = std::minmax({(double)s.x, (double)e.x});
+                auto [y1, y2] = std::minmax({(double)s.y, (double)e.y});
+                min_x = std::min(min_x, x1 - HALF_WIDTH);
+                max_x = std::max(max_x, x2 + HALF_WIDTH);
+                min_y = std::min(min_y, y1 - HALF_WIDTH);
+                max_y = std::max(max_y, y2 + HALF_WIDTH);
             }
-        } else if (speed.vy != 0) {
-            next_pos.x = pos.x; // Фиксируем перпендикулярную ось
-            if (next_pos.y < min_y || next_pos.y > max_y) {
-                next_pos.y = std::clamp(next_pos.y, min_y, max_y);
-                dog->SetSpeed({0, 0});
+
+            Position potential_next_pos = {
+                pos.x + speed.vx * remaining_dt,
+                pos.y + speed.vy * remaining_dt
+            };
+
+            // Ограничиваем движение текущими дорогами
+            Position clamped_pos = {
+                std::clamp(potential_next_pos.x, min_x, max_x),
+                std::clamp(potential_next_pos.y, min_y, max_y)
+            };
+
+            // Считаем, какое расстояние мы фактически прошли
+            double moved_x = clamped_pos.x - pos.x;
+            double moved_y = clamped_pos.y - pos.y;
+            double moved_dist = std::sqrt(moved_x * moved_x + moved_y * moved_y);
+            
+            // Сколько времени это заняло
+            double v_mag = std::sqrt(speed.vx * speed.vx + speed.vy * speed.vy);
+            double spent_dt = (v_mag > EPS) ? (moved_dist / v_mag) : remaining_dt;
+
+            dog->SetPosition(clamped_pos);
+            remaining_dt -= spent_dt;
+
+            // Если мы уперлись в границу (не доехали до желаемой точки)
+            if (std::abs(clamped_pos.x - potential_next_pos.x) > EPS || 
+                std::abs(clamped_pos.y - potential_next_pos.y) > EPS) {
+                
+                // Проверяем: а нет ли ПРЯМО ТУТ другой дороги, которая ведет дальше?
+                auto roads_at_edge = FindRoadsAtPosition(clamped_pos);
+                
+                // Если новых дорог нет или они те же самые — мы реально в тупике
+                bool found_new_road = false;
+                for (auto* r_new : roads_at_edge) {
+                    bool is_old = false;
+                    for (auto* r_old : roads) if (r_new == r_old) is_old = true;
+                    if (!is_old) { found_new_road = true; break; }
+                }
+
+                if (!found_new_road) {
+                    dog->SetSpeed({0, 0});
+                    break; 
+                }
+                // Иначе — продолжаем цикл с новой позиции
+            } else {
+                break; // Доехали до конца пути без препятствий
             }
         }
-
-        dog->SetPosition(next_pos);
     }
 }
+
 
 std::vector<const Road*> GameSession::FindRoadsAtPosition(Position pos) const {
     std::vector<const Road*> result;
@@ -115,27 +150,19 @@ std::vector<const Road*> GameSession::FindRoadsAtPosition(Position pos) const {
 }
 
 bool GameSession::IsPositionOnRoad(Position pos, const Road& road) const {
-    const double HALF_WIDTH = 0.4;
+    static constexpr double HALF_WIDTH = 0.4;
+    static constexpr double EPS = 0.001; // Маленький запас для стыков
     
     auto start = road.GetStart();
     auto end = road.GetEnd();
+    auto [x_min, x_max] = std::minmax({static_cast<double>(start.x), static_cast<double>(end.x)});
+    auto [y_min, y_max] = std::minmax({static_cast<double>(start.y), static_cast<double>(end.y)});
     
-    if (road.IsHorizontal()) {
-        double road_y = static_cast<double>(start.y);
-        double x_min = std::min(static_cast<double>(start.x), static_cast<double>(end.x));
-        double x_max = std::max(static_cast<double>(start.x), static_cast<double>(end.x));
-        
-        return (pos.x >= x_min - HALF_WIDTH && pos.x <= x_max + HALF_WIDTH &&
-                pos.y >= road_y - HALF_WIDTH && pos.y <= road_y + HALF_WIDTH);
-    } else {
-        double road_x = static_cast<double>(start.x);
-        double y_min = std::min(static_cast<double>(start.y), static_cast<double>(end.y));
-        double y_max = std::max(static_cast<double>(start.y), static_cast<double>(end.y));
-        
-        return (pos.x >= road_x - HALF_WIDTH && pos.x <= road_x + HALF_WIDTH &&
-                pos.y >= y_min - HALF_WIDTH && pos.y <= y_max + HALF_WIDTH);
-    }
+    // Добавляем EPS к границам дороги, чтобы "склеить" их для double
+    return (pos.x >= x_min - HALF_WIDTH - EPS && pos.x <= x_max + HALF_WIDTH + EPS &&
+            pos.y >= y_min - HALF_WIDTH - EPS && pos.y <= y_max + HALF_WIDTH + EPS);
 }
+
 
 const Road* GameSession::FindRoadAndBounds(Position pos) const {
     static constexpr double ROAD_WIDTH = 4.0; // Полная ширина дороги для проверки попадания
