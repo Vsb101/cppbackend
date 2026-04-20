@@ -2,7 +2,6 @@
 #include <random>
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <vector>
 
 namespace model {
@@ -53,77 +52,64 @@ void GameSession::PutDogInRndPosition(std::shared_ptr<Dog> dog) {
 }
 
 void GameSession::Update(double dt_seconds) {
+    static constexpr double HALF_WIDTH = 0.4;
+
     for (auto& dog : dogs_) {
         const auto& pos = dog->GetPosition();
         const auto& speed = dog->GetSpeed();
-        
         if (speed.vx == 0 && speed.vy == 0) continue;
 
-        // Находим все дороги, которые пересекаются в текущей позиции (перекрёсток)
         auto roads = FindRoadsAtPosition(pos);
-        if (roads.empty()) continue; // Если собака не на дороге - не двигаем её
+        if (roads.empty()) continue;
+
+        // Считаем максимально возможные границы из всех дорог под собакой
+        double min_x = 1e9, max_x = -1e9, min_y = 1e9, max_y = -1e9;
+        for (const auto* r : roads) {
+            auto s = r->GetStart();
+            auto e = r->GetEnd();
+            auto [x1, x2] = std::minmax({(double)s.x, (double)e.x});
+            auto [y1, y2] = std::minmax({(double)s.y, (double)e.y});
+            
+            min_x = std::min(min_x, x1 - HALF_WIDTH);
+            max_x = std::max(max_x, x2 + HALF_WIDTH);
+            min_y = std::min(min_y, y1 - HALF_WIDTH);
+            max_y = std::max(max_y, y2 + HALF_WIDTH);
+        }
+
+        Position next_pos = {pos.x + speed.vx * dt_seconds, pos.y + speed.vy * dt_seconds};
         
-        Position next_pos = pos;
-        bool stopped = false;
-        const double HALF_WIDTH = 0.4;
-        
-        // Вычисляем потенциальную новую позицию
-        next_pos.x = pos.x + speed.vx * dt_seconds;
-        next_pos.y = pos.y + speed.vy * dt_seconds;
-        
-        // Проверяем, остаётся ли новая позиция в пределах любой из дорог
-        bool can_move = false;
-        for (const Road* r : roads) {
-            if (IsPositionOnRoad(next_pos, *r)) {
-                can_move = true;
-                break;
+        // ВАЖНО: Ограничиваем движение только по той оси, по которой идем
+        if (speed.vx != 0) {
+            next_pos.y = pos.y; // Фиксируем перпендикулярную ось
+            if (next_pos.x < min_x || next_pos.x > max_x) {
+                next_pos.x = std::clamp(next_pos.x, min_x, max_x);
+                dog->SetSpeed({0, 0});
+            }
+        } else if (speed.vy != 0) {
+            next_pos.x = pos.x; // Фиксируем перпендикулярную ось
+            if (next_pos.y < min_y || next_pos.y > max_y) {
+                next_pos.y = std::clamp(next_pos.y, min_y, max_y);
+                dog->SetSpeed({0, 0});
             }
         }
-        
-        if (can_move) {
-            // Двигаем собаку
-            dog->SetPosition(next_pos);
-        } else {
-            // Проверяем, можно двигаться хотя бы по одной оси
-            Position test_pos_x = {next_pos.x, pos.y};
-            Position test_pos_y = {pos.x, next_pos.y};
-            
-            bool can_move_x = false, can_move_y = false;
-            for (const Road* r : roads) {
-                if (IsPositionOnRoad(test_pos_x, *r)) can_move_x = true;
-                if (IsPositionOnRoad(test_pos_y, *r)) can_move_y = true;
-            }
-            
-            if (speed.vx != 0 && speed.vy == 0) {
-                // Только горизонтальное движение
-                if (can_move_x) {
-                    dog->SetPosition(test_pos_x);
-                } else {
-                    dog->SetSpeed({0.0, 0.0});
-                }
-            } else if (speed.vy != 0 && speed.vx == 0) {
-                // Только вертикальное движение
-                if (can_move_y) {
-                    dog->SetPosition(test_pos_y);
-                } else {
-                    dog->SetSpeed({0.0, 0.0});
-                }
-            } else {
-                // Движение по обоим осям - это не должно happen, так как скорость всегда только по одной оси
-                dog->SetSpeed({0.0, 0.0});
-            }
-        }
+
+        dog->SetPosition(next_pos);
     }
 }
 
 std::vector<const Road*> GameSession::FindRoadsAtPosition(Position pos) const {
     std::vector<const Road*> result;
-    const double HALF_WIDTH = 0.4;
-    
-    for (const auto& road : map_->GetRoads()) {
-        if (IsPositionOnRoad(pos, road)) {
-            result.push_back(&road);
-        }
+    // Осевые линии дорог имеют целочисленные координаты
+    int x = static_cast<int>(std::round(pos.x));
+    int y = static_cast<int>(std::round(pos.y));
+
+    // Проверяем горизонтальные дороги, проходящие через этот Y
+    for (const auto* road : map_->GetHorizontalRoadsAt(y)) {
+        if (IsPositionOnRoad(pos, *road)) result.push_back(road);
+    }
+    // Проверяем вертикальные дороги, проходящие через этот X
+    for (const auto* road : map_->GetVerticalRoadsAt(x)) {
+        if (IsPositionOnRoad(pos, *road)) result.push_back(road);
     }
     return result;
 }
