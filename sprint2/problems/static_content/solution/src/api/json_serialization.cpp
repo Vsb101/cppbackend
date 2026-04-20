@@ -1,5 +1,6 @@
-#include <boost/json/src.hpp> // МЕГА-ВАЖНО
+#include <boost/json/src.hpp> 
 #include "json_serialization.h"
+#include "../model/dog.h"
 
 namespace model {
 
@@ -12,8 +13,11 @@ namespace {
         const auto id = "id"; const auto name = "name";
         const auto roads = "roads"; const auto buildings = "buildings"; const auto offices = "offices";
         const auto offsetX = "offsetX"; const auto offsetY = "offsetY";
+        const auto pos = "pos"; const auto speed = "speed"; const auto dir = "dir";
     }
 }
+
+// --- Сериализация статики (Road, Building, Office, Map) ---
 
 void tag_invoke(json::value_from_tag, json::value& jv, const Road& road) {
     if (road.IsHorizontal()) {
@@ -38,6 +42,28 @@ void tag_invoke(json::value_from_tag, json::value& jv, const Map& map) {
     jv = {{keys::id, *map.GetId()}, {keys::name, map.GetName()},
           {keys::roads, map.GetRoads()}, {keys::buildings, map.GetBuildings()}, {keys::offices, map.GetOffices()}};
 }
+
+// --- Сериализация игровой механики (Dog / State) ---
+
+void tag_invoke(json::value_from_tag, json::value& jv, const Dog& dog) {
+    auto dir_to_string = [](Direction d) -> std::string_view {
+        switch (d) {
+            case Direction::NORTH: return "U";
+            case Direction::SOUTH: return "D";
+            case Direction::WEST:  return "L";
+            case Direction::EAST:  return "R";
+        }
+        return "U";
+    };
+
+    jv = {
+        {keys::pos,   {dog.GetPosition().x, dog.GetPosition().y}},
+        {keys::speed, {dog.GetSpeed().vx, dog.GetSpeed().vy}},
+        {keys::dir,   dir_to_string(dog.GetDirection())}
+    };
+}
+
+// --- Десериализация (value_to) ---
 
 Road tag_invoke(json::value_to_tag<Road>, const json::value& jv) {
     const auto& obj = jv.as_object();

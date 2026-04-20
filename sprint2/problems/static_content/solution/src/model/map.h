@@ -1,34 +1,24 @@
 #pragma once
 
 #include "../other/tagged.h"
-
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <utility>
-#include <cstddef>
+#include <deque>
+#include <algorithm>
 
 namespace model {
 
 using Dimension = int;
 using Coord = Dimension;
 
-struct Point {
-    Coord x, y;
-};
+struct Point { Coord x, y; };
+struct Size { Dimension width, height; };
+struct Rectangle { Point position; Size size; };
+struct Offset { Dimension dx, dy; };
 
-struct Size {
-    Dimension width, height;
-};
-
-struct Rectangle {
-    Point position;
-    Size size;
-};
-
-struct Offset {
-    Dimension dx, dy;
-};
+// --- КЛАССЫ ДОЛЖНЫ БЫТЬ ОБЪЯВЛЕНЫ ДО КЛАССА MAP ---
 
 class Road {
 public:
@@ -82,31 +72,42 @@ private:
 class Map {
 public:
     using Id = util::Tagged<std::string, Map>;
-    using Roads = std::vector<Road>;
+    using Roads = std::deque<Road>;
     using Buildings = std::vector<Building>;
     using Offices = std::vector<Office>;
 
     Map(Id id, std::string name) noexcept
         : id_(std::move(id)), name_(std::move(name)) {}
 
-    [[nodiscard]] const Id& GetId() const noexcept { return id_; }
-    [[nodiscard]] const std::string& GetName() const noexcept { return name_; }
-    [[nodiscard]] const Buildings& GetBuildings() const noexcept { return buildings_; }
-    [[nodiscard]] const Roads& GetRoads() const noexcept { return roads_; }
-    [[nodiscard]] const Offices& GetOffices() const noexcept { return offices_; }
+    const Id& GetId() const noexcept { return id_; }
+    const std::string& GetName() const noexcept { return name_; }
+    const Buildings& GetBuildings() const noexcept { return buildings_; }
+    const Roads& GetRoads() const noexcept { return roads_; }
+    const Offices& GetOffices() const noexcept { return offices_; }
 
-    void AddRoad(const Road& road) { roads_.push_back(road); }
+    void AddRoad(const Road& road);
     void AddBuilding(const Building& building) { buildings_.push_back(building); }
     void AddOffice(Office office);
 
-private:
-    using OfficeIdToIndex = std::unordered_map<Office::Id, size_t, util::TaggedHasher<Office::Id>>;
+    const std::vector<const Road*>& GetHorizontalRoadsAt(int y) const;
 
+    const std::vector<const Road*>& GetVerticalRoadsAt(int x) const;
+
+    void SetDogSpeed(double speed) { dog_speed_ = speed; }
+    double GetDogSpeed() const noexcept { return dog_speed_; }
+
+private:
     Id id_;
     std::string name_;
     Roads roads_;
     Buildings buildings_;
     Offices offices_;
+    double dog_speed_ = 0.0;
+
+    std::unordered_map<int, std::vector<const Road*>> horizontal_roads_;
+    std::unordered_map<int, std::vector<const Road*>> vertical_roads_;
+    
+    using OfficeIdToIndex = std::unordered_map<Office::Id, size_t, util::TaggedHasher<Office::Id>>;
     OfficeIdToIndex office_id_to_index_;
 };
 

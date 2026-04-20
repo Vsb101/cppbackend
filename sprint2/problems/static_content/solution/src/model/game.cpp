@@ -23,17 +23,13 @@ std::shared_ptr<Map> Game::FindMap(const Map::Id& id) const noexcept {
 }
 
 std::shared_ptr<GameSession> Game::FindOrCreateSession(const Map::Id& id) {
-    // 1. Ищем в мапе sessions_
     if (auto it = sessions_.find(id); it != sessions_.end()) {
         return it->second;
     }
     
-    // 2. Если нет, ищем карту
     auto map = FindMap(id);
     if (!map) return nullptr;
 
-    // 3. Создаем новую сессию
-    // ВАЖНО: Проверь конструктор GameSession (ниже)
     auto session = std::make_shared<GameSession>(map);
     sessions_[id] = session;
     return session;

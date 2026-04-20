@@ -2,18 +2,16 @@
 
 #include <string>
 #include <memory>
-
 #include "../model/game_session.h"
-#include "../model/dog.h" // Нужен для weak_ptr<Dog>
+#include "../model/dog.h"
 #include "../other/tagged.h"
 
-namespace app { // Сменили namespace на app
+namespace app {
 
 class Player {
- public:
+public:
     using Id = util::Tagged<size_t, Player>;
 
-    // Оставляем только конструктор с явным ID
     Player(Id id, std::string name)
         : id_(std::move(id))
         , name_(std::move(name)) {}
@@ -29,7 +27,6 @@ class Player {
     const Id& GetId() const { return id_; }
     const std::string& GetName() const { return name_; }
     
-    // Возвращаем shared_ptr через lock, чтобы безопасно работать с объектами
     std::shared_ptr<model::GameSession> GetSession() const {
         return session_.lock();
     }
@@ -38,7 +35,7 @@ class Player {
         return dog_.lock();
     }
 
- private:
+private:
     Id id_;
     std::string name_;
     std::weak_ptr<model::GameSession> session_;

@@ -56,6 +56,7 @@ target_link_libraries(game_server PRIVATE
     Boost::thread
     Boost::chrono
     Boost::date_time
+    Boost::regex
     jsoncpp
 )
 

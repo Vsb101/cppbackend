@@ -132,5 +132,9 @@ GameSession::Bounds GameSession::GetMovementBounds(Position pos) const {
     }
     return {min_x, max_x, min_y, max_y};
 }
+        }
+    }
+    return {min_x, max_x, min_y, max_y};
+}
 
 }  // namespace model
