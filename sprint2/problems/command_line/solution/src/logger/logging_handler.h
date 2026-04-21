@@ -47,7 +47,7 @@ struct ResponseLog {
              : "null") {}
 
     std::string ip;           ///< IP-адрес клиента
-    long response_time;        ///< Время обработки запроса в микросекундах
+    int32_t response_time;        ///< Время обработки запроса в микросекундах
     int code;                  ///< HTTP-статус код ответа
     std::string content_type;  ///< MIME-тип содержимого ответа
 };

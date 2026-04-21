@@ -1,5 +1,6 @@
 #include "api_handler.h"
 #include "json_serialization.h"
+#include "endpoints.h"
 #include <chrono>
 
 namespace http_handler {
@@ -10,47 +11,47 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
     auto target = req.target();
     auto method = req.method();
 
-    if (target == "/api/v1/maps"sv || target == "/api/v1/maps/"sv) {
+    if (target == std::string_view(api::Endpoints::GetMaps()) || target == (std::string(api::Endpoints::GetMaps()) + "/")) {
         if (method == http::verb::get || method == http::verb::head) return HandleGetMaps();
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
     }
 
-    if (target.starts_with("/api/v1/maps/"sv)) {
-        std::string map_id = std::string(target.substr("/api/v1/maps/"sv.size()));
+    if (target.starts_with(api::Endpoints::GetMap())) {
+        std::string map_id = std::string(target.substr(api::Endpoints::GetMap().size()));
         if (method == http::verb::get || method == http::verb::head) return HandleGetMapById(map_id);
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
     }
 
-    if (target == "/api/v1/game/join"sv) {
+    if (target == api::Endpoints::JoinGame()) {
         if (method == http::verb::post) return HandleJoinGame(req.body());
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Only POST is allowed"}}, "POST"sv);
     }
 
-    if (target == "/api/v1/game/players"sv) {
+    if (target == api::Endpoints::GetPlayers()) {
         if (method == http::verb::get || method == http::verb::head) 
             return HandleGetPlayers(req[http::field::authorization]);
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
     }
 
-    if (target == "/api/v1/game/state"sv) {
+    if (target == api::Endpoints::GetState()) {
         if (method == http::verb::get || method == http::verb::head) 
             return HandleGetGameState(req[http::field::authorization]);
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
     }
 
-    if (target == "/api/v1/game/player/action"sv) {
+    if (target == api::Endpoints::PlayerAction()) {
         if (method == http::verb::post) 
             return HandlePlayerAction(req[http::field::authorization], req.body());
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Only POST is allowed"}}, "POST"sv);
     }
 
-    if (target == "/api/v1/game/tick"sv) {
+    if (target == api::Endpoints::Tick()) {
         if (method == http::verb::post) return HandleTick(req.body());
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Only POST is allowed"}}, "POST"sv);

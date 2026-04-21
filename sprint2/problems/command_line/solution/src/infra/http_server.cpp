@@ -41,6 +41,10 @@ void SessionBase::OnRead(beast::error_code ec, [[maybe_unused]] std::size_t byte
 void SessionBase::Close() {
     beast::error_code ec;
     stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
+    
+    if (ec) {
+        return ErrorMessage(ec, "Shutdown failed"sv);
+    }
 }
 
 void SessionBase::OnWrite(bool close, beast::error_code ec,

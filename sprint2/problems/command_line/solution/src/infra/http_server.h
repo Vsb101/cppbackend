@@ -47,13 +47,17 @@ class SessionBase {
      * 
      * @return const std::string& IP-адрес клиента
      */
-    [[nodiscard]] const std::string& GetRemoteIp() {
-        static std::string remote_ip;
+    [[nodiscard]] std::string GetRemoteIp() {
         try {
-            remote_ip = stream_.socket().remote_endpoint().address().to_string();
+            return stream_.socket().remote_endpoint().address().to_string();
+        } catch (const boost::system::system_error& se) {
+            logger::LogError("GetRemoteIp", se.what());
+        } catch (const std::exception& e) {
+            logger::LogError("GetRemoteIp", e.what());
         } catch (...) {
+            logger::LogError("GetRemoteIp", "Unknown exception");
         }
-        return remote_ip;
+        return "";
     }
 
  protected:
@@ -79,7 +83,7 @@ class SessionBase {
                     "response sent"sv, 
                     logger::ResponseLog<Body, Fields>(
                         self->GetRemoteIp(),                                 // 1. ip (string)
-                        self->GetDurReceivedRequest(                         // 2. response_time (long)
+                        self->GetDurReceivedRequest(                         // 2. response_time
                             boost::posix_time::microsec_clock::local_time()),
                         *safe_response                                       // 3. res (const http::response&)
                     )
@@ -91,7 +95,7 @@ class SessionBase {
         req_recieve_time_ = req_time;
     }
 
-    [[nodiscard]] long GetDurReceivedRequest(
+    [[nodiscard]] int32_t GetDurReceivedRequest(
         const boost::posix_time::ptime& curr_time) {
         boost::posix_time::time_duration dur = curr_time - req_recieve_time_;
         return dur.total_milliseconds();
