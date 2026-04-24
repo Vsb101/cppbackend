@@ -1,7 +1,3 @@
-/**
- * @file main.cpp
- * @brief Точка входа в игровой сервер
- */
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
@@ -49,7 +45,7 @@ int main(int argc, const char* argv[]) {
     logger::InitLogger();
 
     try {
-        // 1. Парсинг аргументов
+        //  Парсинг аргументов
         auto args = ParseArgs(argc, argv);
         if (!args) {
             std::cerr << "Usage: game_server <config-json> <static-path>" << std::endl;
@@ -57,14 +53,13 @@ int main(int argc, const char* argv[]) {
         }
         const auto& [config_path, static_path] = args.value();
 
-        // 2. Загрузка модели игры
+        // Загрузка модели игры
         model::Game game = json_loader::LoadGame(config_path);
 
-        // 3. Инициализация прикладного слоя (Application)
-        // Теперь Application чист от сетевых зависимостей
+        // Инициализация прикладного слоя (Application)
         app::Application application(std::move(game));
 
-        // 4. Подготовка сетевой инфраструктуры
+        // Подготовка сетевой инфраструктуры
         const unsigned num_threads = std::thread::hardware_concurrency();
         net::io_context ioc(num_threads);
 
@@ -78,11 +73,11 @@ int main(int argc, const char* argv[]) {
                 }
             });
 
-        // 5. Создание главного обработчика (Dispatcher)
+        // Создание главного обработчика (Dispatcher)
         // Передаем ссылку на Application и путь к статике
         http_handler::RequestHandler handler{application, std::filesystem::path(static_path)};
 
-        // 6. Запуск HTTP-сервера
+        // Запуск HTTP-сервера
         const auto address = net::ip::make_address("0.0.0.0");
         http_server::ServeHttp(ioc, {address, config::kDefaultPort},
                                [&handler](auto&& req, auto&& send) {
@@ -93,7 +88,7 @@ int main(int argc, const char* argv[]) {
         logger::LogInfo("server started"sv,
                         logger::ServerAddrPortLog(address.to_string(), config::kDefaultPort));
 
-        // 7. Запуск многопоточной обработки
+        // Запуск многопоточной обработки
         std::vector<std::jthread> workers;
         for (unsigned i = 0; i < num_threads - 1; ++i) {
             workers.emplace_back([&ioc] { ioc.run(); });

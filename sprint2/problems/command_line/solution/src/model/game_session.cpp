@@ -22,9 +22,16 @@ const std::vector<std::shared_ptr<Dog>>& GameSession::GetDogs() const noexcept {
     return dogs_;
 }
 
-std::shared_ptr<Dog> GameSession::CreateDog(const std::string& name) {
+std::shared_ptr<Dog> GameSession::CreateDog(const std::string& name, bool randomize) {
     auto dog = std::make_shared<Dog>(Dog::Id{next_dog_id_++}, name);
-    PutDogInRndPosition(dog);
+    if (randomize) {
+        PutDogInRndPosition(dog);
+    } else {
+        // Ставим в начало первой дороги (требование задания)
+        const auto& road = map_->GetRoads().at(0);
+        auto start = road.GetStart();
+        dog->SetPosition({static_cast<double>(start.x), static_cast<double>(start.y)});
+    }
     dogs_.push_back(dog);
     return dog;
 }
