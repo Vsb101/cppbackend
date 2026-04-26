@@ -1,0 +1,4 @@
+[console_scripts]
+tank-docs-gen = yandextank.validator.docs_gen:main
+tank-postloader = yandextank.plugins.DataUploader.cli:post_loader
+yandex-tank = yandextank.core.cli:main

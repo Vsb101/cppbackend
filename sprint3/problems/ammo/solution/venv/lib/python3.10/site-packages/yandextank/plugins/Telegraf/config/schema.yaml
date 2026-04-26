@@ -1,0 +1,33 @@
+config:
+  type: ['string', 'dict']
+  default: auto
+  description: config or path to monitoring config file.
+  values_description:
+    auto: collect default metrics from default_target host
+    <path/to/file>: path to telegraf configuration file - yaml or xml
+    none: disable monitoring
+config_contents:
+  type: string
+  description: used to repeat tests from Overload, not for manual editing
+default_target:
+  type: string
+  default: localhost
+  description: 'host to collect default metrics from (if "config: auto" specified)'
+disguise_hostnames:
+  type: boolean
+  default: true
+  description: Disguise real host names - use this if you upload results to Overload and dont want others to see your hostnames
+ssh_timeout:
+  type: string
+  default: 5s
+  description: timeout of ssh connection to target(s)
+  examples:
+    10s: 10 seconds
+    2m: 2 minutes
+ssh_key_path:
+  type: string
+  description: path to ssh key file or folder with keys
+kill_old:
+  type: boolean
+  default: false
+  description: kill old hanging agents on target(s)

@@ -1,0 +1,12 @@
+[Connection: close]
+[Host: 127.0.0.1]
+[Cookie: None]
+/api/v1/maps
+[Connection: close]
+[Host: 127.0.0.1]
+[Cookie: None]
+/api/v1/maps/
+[Connection: close]
+[Host: 127.0.0.1]
+[Cookie: None]
+/api/v1/maps/map1

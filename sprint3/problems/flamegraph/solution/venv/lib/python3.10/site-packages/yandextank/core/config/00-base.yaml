@@ -1,0 +1,55 @@
+# WARNING: order of plugins is matter
+rcheck:
+  enabled: true
+  package: yandextank.plugins.ResourceCheck
+bfg:
+  enabled: false
+  package: yandextank.plugins.Bfg
+console:
+  enabled: true
+  package: yandextank.plugins.Console
+influx:
+  enabled: false
+  package: yandextank.plugins.InfluxUploader
+jmeter:
+  enabled: false
+  package: yandextank.plugins.JMeter
+json_report:
+  enabled: true
+  package: yandextank.plugins.JsonReport
+offline_report:
+  enabled: false
+  package: yandextank.plugins.OfflineReport
+opentsdb:
+  enabled: false
+  package: yandextank.plugins.OpenTSDBUploader
+overload:
+  enabled: false
+  package: yandextank.plugins.DataUploader
+pandora:
+  enabled: false
+  package: yandextank.plugins.Pandora
+phantom:
+  enabled: false
+  package: yandextank.plugins.Phantom
+platform:
+  enabled: false
+  package: yandextank.plugins.Platform
+shellexec:
+  enabled: true
+  package: yandextank.plugins.ShellExec
+shootexec:
+  enabled: false
+  package: yandextank.plugins.ShootExec
+telegraf:
+  enabled: true
+  package: yandextank.plugins.Telegraf
+autostop:
+  enabled: true
+  package: yandextank.plugins.Autostop
+rcassert:
+  enabled: true
+  package: yandextank.plugins.RCAssert
+uploader:
+  enabled: false
+  package: yandextank.plugins.DataUploader
