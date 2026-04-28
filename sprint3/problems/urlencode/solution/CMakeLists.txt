@@ -19,7 +19,7 @@ add_executable(tests
     src/urlencode.h
     src/urlencode.cpp
 )
-# Явно линкуем библиотеки
+#` Явно линкуем библиотеки
 target_link_libraries(tests PRIVATE
     /home/vladimir/.conan/data/gtest/1.14.0/_/_/package/f9f33c20295ef67fb22d4a28ff92def5bcd4bde5/lib/libgtest_main.a
     /home/vladimir/.conan/data/gtest/1.14.0/_/_/package/f9f33c20295ef67fb22d4a28ff92def5bcd4bde5/lib/libgtest.a
