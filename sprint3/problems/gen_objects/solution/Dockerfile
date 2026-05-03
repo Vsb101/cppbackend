@@ -15,6 +15,7 @@ RUN mkdir /app/build && cd /app/build && \
 
 # только после этого копируем остальные исходники
 COPY ./src /app/src
+COPY ./tests /app/tests
 COPY ./data /app/data
 COPY ./static /app/static
 COPY CMakeLists.txt /app/
@@ -41,4 +42,4 @@ COPY ./data /app/data
 COPY ./static /app/static
 
 # Запускаем игровой сервер
-ENTRYPOINT ["/app/game_server", "/app/data/config.json", "/app/static"] 
+ENTRYPOINT ["/app/game_server", "--config-file", "/app/data/config.json", "--www-root", "/app/static"] 

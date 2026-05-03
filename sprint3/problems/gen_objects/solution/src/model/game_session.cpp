@@ -27,13 +27,19 @@ const std::vector<std::shared_ptr<Dog>>& GameSession::GetDogs() const noexcept {
 
 std::shared_ptr<Dog> GameSession::CreateDog(const std::string& name, bool randomize) {
     auto dog = std::make_shared<Dog>(Dog::Id{next_dog_id_++}, name);
-    if (randomize) {
+    
+    const auto& roads = map_->GetRoads(); // Берем все дороги сразу
+    
+    if (randomize && !roads.empty()) {
         PutDogInRndPosition(dog);
     } else {
-        if (!map_->GetRoads().empty()) {
-            const auto& road = map_->GetRoads().at(0);
+        // Защита: если дорог нет вообще, ставим в 0,0
+        if (!roads.empty()) {
+            const auto& road = roads.at(0);
             auto start = road.GetStart();
             dog->SetPosition({static_cast<double>(start.x), static_cast<double>(start.y)});
+        } else {
+            dog->SetPosition({0.0, 0.0});
         }
     }
     dogs_.push_back(dog);

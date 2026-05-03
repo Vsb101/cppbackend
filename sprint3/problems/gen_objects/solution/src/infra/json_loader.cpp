@@ -7,8 +7,10 @@
 namespace json_loader {
 namespace json = boost::json;
 
+using namespace std::literals;
+
 ProjectConfig LoadGame(const std::filesystem::path& json_path) {
-    // ---ВАЛИДАЦИЯ ---
+    // Валидация файла
     std::ifstream ifs(json_path);
     if (!ifs) {
         throw std::runtime_error("Can't open " + json_path.string());
@@ -31,27 +33,29 @@ ProjectConfig LoadGame(const std::filesystem::path& json_path) {
     if (!root_obj.contains("maps")) {
         throw std::runtime_error("Missing required field 'maps' in JSON");
     }
-    // -----------------------
 
     ProjectConfig config;
 
-    // Читаем настройки генератора
+    // Читаем настройки генератора (с дефолтными значениями для защиты от 503)
     if (root_obj.contains("lootGeneratorConfig")) {
         auto& lgc = root_obj.at("lootGeneratorConfig").as_object();
         config.game.SetLootGeneratorConfig({
             lgc.at("period").as_double(),
             lgc.at("probability").as_double()
         });
+    } else {
+        // Если в конфиге нет настроек генератора, ставим безопасные значения
+        config.game.SetLootGeneratorConfig({1.0, 0.1});
     }
 
-    // корость по умолчанию
+    // Скорость по умолчанию
     double default_speed = 1.0;
     if (root_obj.contains("defaultDogSpeed")) {
         default_speed = root_obj.at("defaultDogSpeed").as_double();
     }
     config.game.SetDefaultDogSpeed(default_speed);
 
-    // читаем карты (с твоей проверкой на массив)
+    // Читаем карты
     auto maps_it = root_obj.find("maps");
     if (!maps_it->value().is_array()) {
         throw std::runtime_error("Field 'maps' must be an array");
@@ -61,23 +65,30 @@ ProjectConfig LoadGame(const std::filesystem::path& json_path) {
     for (const auto& map_jv : maps_array) {
         auto& map_obj = map_jv.as_object();
         
-        // Используем твой способ десериализации через value_to
+        // Используем value_to для дорог, зданий и офисов
         auto map = json::value_to<model::Map>(map_jv);
 
-        // Установка скорости
+        // Установка скорости (карта или дефолт)
         if (map_obj.contains("dogSpeed")) {
             map.SetDogSpeed(map_obj.at("dogSpeed").as_double());
         } else {
             map.SetDogSpeed(default_speed);
         }
 
-        // Сохранение LootTypes (ExtraData)
+        // Работа с LootTypes (Экстра-данные)
         if (map_obj.contains("lootTypes")) {
             auto& loot_types = map_obj.at("lootTypes").as_array();
-            // В модель только число
+            // Валидация: должно быть не менее одного типа трофеев
+            if (loot_types.empty()) {
+                throw std::runtime_error("Map '"s + *map.GetId() + "' must have at least one loot type");
+            }
+            // В модель передаем только число — это КРИТИЧНО для GenerateLoot
             map.SetLootTypesCount(loot_types.size());
-            // В хранилище — весь JSON
+            // В хранилище сохраняем весь массив для фронтенда
             config.extra_data.SaveLootTypes(map.GetId(), loot_types);
+        } else {
+            // Если типов лута нет, это ошибка - должно быть хотя бы один
+            throw std::runtime_error("Map '"s + *map.GetId() + "' must have lootTypes field with at least one element");
         }
 
         config.game.AddMap(std::move(map));

@@ -12,8 +12,6 @@ namespace json = boost::json;
 
 // Сериализация персонажа
 void tag_invoke(json::value_from_tag, json::value& jv, const Dog& dog);
-
-// --- ДОБАВИТЬ ЭТУ СТРОКУ ---
 void tag_invoke(json::value_from_tag, json::value& jv, const LostObject& loot);
 // ---------------------------
 

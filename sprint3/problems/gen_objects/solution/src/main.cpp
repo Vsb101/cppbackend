@@ -1,6 +1,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/program_options.hpp>
 #include <cstdlib>
 #include <filesystem>
@@ -31,7 +32,6 @@ struct Args {
     bool randomize_spawn_points = false;
 };
 
-// Разбор аргументов командной строки через ProgramOptions
 std::optional<Args> ParseCommandLine(int argc, const char* argv[]) {
     namespace po = boost::program_options;
     po::options_description desc{"Allowed options"};
@@ -64,18 +64,17 @@ std::optional<Args> ParseCommandLine(int argc, const char* argv[]) {
     return args;
 }
 
-// Рекурсивный таймер для автоматических тиков
 void StartAutoTick(std::shared_ptr<net::strand<net::io_context::executor_type>> strand, 
                    std::chrono::milliseconds period, 
                    app::Application& app) {
     auto timer = std::make_shared<net::steady_timer>(*strand, period);
-    timer->async_wait([timer, period, &app, strand](sys::error_code ec) {
+    timer->async_wait(net::bind_executor(*strand, [timer, period, &app, strand](sys::error_code ec) {
         if (!ec) {
             app.Tick(period);
             timer->expires_at(timer->expiry() + period);
             StartAutoTick(strand, period, app);
         }
-    });
+    }));
 }
 
 int main(int argc, const char* argv[]) {
@@ -86,23 +85,23 @@ int main(int argc, const char* argv[]) {
         if (!args_opt) return EXIT_SUCCESS;
         const auto& args = *args_opt;
 
-        // Загрузка модели игры
+        // 1. Загружаем конфиг (теперь это ProjectConfig)
         auto config = json_loader::LoadGame(args.config_file);
 
-        // Передаем параметры в Application (нужно будет добавить поддержку в конструктор app::Application)
+        // 2. Инициализируем Application
         app::Application application(
             std::move(config.game), 
-            std::move(config.extra_data), // Передаем хранилище
+            std::move(config.extra_data), 
             args.tick_period.has_value(), 
             args.randomize_spawn_points
         );
+
         const unsigned num_threads = std::thread::hardware_concurrency();
         net::io_context ioc(num_threads);
 
-        // Важно: всё взаимодействие с моделью через один strand!
+        // 3. Создаем Strand для защиты игрового состояния
         auto strand = std::make_shared<net::strand<net::io_context::executor_type>>(net::make_strand(ioc));
 
-        // Настройка автоматического тика
         if (args.tick_period) {
             StartAutoTick(strand, std::chrono::milliseconds(*args.tick_period), application);
         }
@@ -115,23 +114,29 @@ int main(int argc, const char* argv[]) {
             }
         });
 
-        http_handler::RequestHandler handler{application, std::filesystem::path(args.www_root)};
+        // 4. Оборачиваем обработчик в shared_ptr
+        auto handler = std::make_shared<http_handler::RequestHandler>(application, std::filesystem::path(args.www_root));
 
         const auto address = net::ip::make_address("0.0.0.0");
         constexpr uint16_t port = 8080;
 
+        // 5. Запуск сервера с выполнением всех запросов строго через strand
         http_server::ServeHttp(ioc, {address, port},
-                               [&handler](auto&& req, auto&& send) {
-                                   handler(std::forward<decltype(req)>(req), std::forward<decltype(send)>(send));
-                               });
+            [handler, strand](auto&& req, auto&& send) {
+                net::dispatch(*strand, [handler, req = std::forward<decltype(req)>(req), send = std::forward<decltype(send)>(send)]() mutable {
+                    (*handler)(std::move(req), std::move(send));
+                });
+            });
 
         logger::LogInfo("server started"sv, logger::ServerAddrPortLog(address.to_string(), port));
 
-        std::vector<std::jthread> workers;
+        std::vector<std::thread> workers;
         for (unsigned i = 0; i < num_threads - 1; ++i) {
             workers.emplace_back([&ioc] { ioc.run(); });
         }
         ioc.run();
+
+        for (auto& t : workers) { t.join(); }
 
         logger::LogInfo("server exited"sv, logger::ExitCodeLog(0));
 

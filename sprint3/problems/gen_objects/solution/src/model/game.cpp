@@ -36,10 +36,11 @@ std::shared_ptr<GameSession> Game::FindOrCreateSession(const Map::Id& id) {
         static_cast<int64_t>(loot_generator_config_.period * 1000)
     );
     
-    loot_gen::LootGenerator loot_gen{
+    loot_gen::LootGenerator loot_gen(
         period_ms,
-        loot_generator_config_.probability
-    };
+        loot_generator_config_.probability,
+        []() { return loot_gen::s_distribution(loot_gen::s_rng); }
+    );
 
     // Создаем новую сессию с генератором
     auto session = std::make_shared<GameSession>(map, std::move(loot_gen));

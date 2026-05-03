@@ -1,8 +1,14 @@
 #pragma once
 #include <chrono>
 #include <functional>
+#include <random>
 
 namespace loot_gen {
+
+// Глобальный RNG для использования в конструкторах по умолчанию
+extern std::random_device s_random_device;
+extern std::mt19937 s_rng;
+extern std::uniform_real_distribution<double> s_distribution;
 
 /*
  *  Генератор трофеев
@@ -18,10 +24,16 @@ public:
      * random_generator - генератор псевдослучайных чисел в диапазоне от [0 до 1]
      */
     LootGenerator(TimeInterval base_interval, double probability,
-                  RandomGenerator random_gen = DefaultGenerator)
+                  RandomGenerator random_gen)
         : base_interval_{base_interval}
         , probability_{probability}
         , random_generator_{std::move(random_gen)} {
+    }
+
+    LootGenerator(TimeInterval base_interval, double probability)
+        : base_interval_{base_interval}
+        , probability_{probability}
+        , random_generator_{std::function<double()>{[]() { return s_distribution(s_rng); }}} {
     }
 
     /*
@@ -36,9 +48,6 @@ public:
     unsigned Generate(TimeInterval time_delta, unsigned loot_count, unsigned looter_count);
 
 private:
-    static double DefaultGenerator() noexcept {
-        return 1.0;
-    };
     TimeInterval base_interval_;
     double probability_;
     TimeInterval time_without_loot_{};

@@ -1,7 +1,6 @@
-#include <boost/json/src.hpp>
 #include "json_serialization.h"
 #include "../model/dog.h"
-#include "../model/game_session.h" // Добавили для доступа к LostObject
+#include "../model/game_session.h" 
 
 namespace model {
 
@@ -110,17 +109,25 @@ Map tag_invoke(json::value_to_tag<Map>, const json::value& jv) {
     Map map{Map::Id{json::value_to<std::string>(obj.at(keys::id))}, 
             json::value_to<std::string>(obj.at(keys::name))};
 
-    for (const auto& r : obj.at(keys::roads).as_array()) {
-        map.AddRoad(json::value_to<Road>(r));
+    // БЕЗОПАСНОЕ чтение массивов
+    if (obj.contains(keys::roads)) {
+        for (const auto& r : obj.at(keys::roads).as_array()) {
+            map.AddRoad(json::value_to<Road>(r));
+        }
     }
-    for (const auto& b : obj.at(keys::buildings).as_array()) {
-        map.AddBuilding(json::value_to<Building>(b));
+    if (obj.contains(keys::buildings)) {
+        for (const auto& b : obj.at(keys::buildings).as_array()) {
+            map.AddBuilding(json::value_to<Building>(b));
+        }
     }
-    for (const auto& o : obj.at(keys::offices).as_array()) {
-        map.AddOffice(json::value_to<Office>(o));
+    if (obj.contains(keys::offices)) {
+        for (const auto& o : obj.at(keys::offices).as_array()) {
+            map.AddOffice(json::value_to<Office>(o));
+        }
     }
     return map;
 }
+
 
 }  // namespace model
 

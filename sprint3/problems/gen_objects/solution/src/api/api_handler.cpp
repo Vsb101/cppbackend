@@ -11,25 +11,31 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
     auto target = req.target();
     auto method = req.method();
 
-    if (target == std::string_view(api::Endpoints::GetMaps()) || target == (std::string(api::Endpoints::GetMaps()) + "/")) {
+    // 1. Список всех карт
+    if (target == api::Endpoints::GetMaps() || target == (std::string(api::Endpoints::GetMaps()) + "/")) {
         if (method == http::verb::get || method == http::verb::head) return HandleGetMaps();
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
     }
 
+    // 2. Получение конкретной карты
     if (target.starts_with(api::Endpoints::GetMap())) {
-        std::string map_id = std::string(target.substr(api::Endpoints::GetMap().size()));
-        if (method == http::verb::get || method == http::verb::head) return HandleGetMapById(map_id);
+        std::string_view map_id_part = target.substr(api::Endpoints::GetMap().size());
+        if (!map_id_part.empty() && map_id_part[0] == '/') map_id_part.remove_prefix(1);
+        
+        if (method == http::verb::get || method == http::verb::head) return HandleGetMapById(map_id_part);
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
     }
 
+    // 3. Вход в игру
     if (target == api::Endpoints::JoinGame()) {
         if (method == http::verb::post) return HandleJoinGame(req.body());
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Only POST is allowed"}}, "POST"sv);
     }
 
+    // 4. Список игроков
     if (target == api::Endpoints::GetPlayers()) {
         if (method == http::verb::get || method == http::verb::head) 
             return HandleGetPlayers(req[http::field::authorization]);
@@ -37,6 +43,7 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
     }
 
+    // 5. Состояние игры
     if (target == api::Endpoints::GetState()) {
         if (method == http::verb::get || method == http::verb::head) 
             return HandleGetGameState(req[http::field::authorization]);
@@ -44,6 +51,7 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
     }
 
+    // 6. Действие игрока
     if (target == api::Endpoints::PlayerAction()) {
         if (method == http::verb::post) 
             return HandlePlayerAction(req[http::field::authorization], req.body());
@@ -51,6 +59,7 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
             json::value{{"code", "invalidMethod"}, {"message", "Only POST is allowed"}}, "POST"sv);
     }
 
+    // 7. Ручной тик времени
     if (target == api::Endpoints::Tick()) {
         if (method == http::verb::post) return HandleTick(req.body());
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
@@ -86,16 +95,15 @@ http::response<http::string_body> ApiHandler::HandleGetMapById(std::string_view 
 
 http::response<http::string_body> ApiHandler::HandleJoinGame(std::string_view body_str) {
     try {
-        auto body = json::parse(boost::json::string_view{body_str.data(), body_str.size()});
+        auto body = json::parse({body_str.data(), body_str.size()});
         auto const& obj = body.as_object();
         
         if (!obj.contains("userName") || !obj.contains("mapId")) {
-             return MakeJsonResponse(http::status::bad_request, 
-                json::value{{"code", "invalidArgument"}, {"message", "Join game request parse error"}});
+             throw std::invalid_argument("missing fields");
         }
 
-        std::string name = std::string(obj.at("userName").as_string());
-        std::string map_id_str = std::string(obj.at("mapId").as_string());
+        std::string name = json::value_to<std::string>(obj.at("userName"));
+        std::string map_id_str = json::value_to<std::string>(obj.at("mapId"));
 
         if (name.empty()) {
             return MakeJsonResponse(http::status::bad_request, 
@@ -115,38 +123,6 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(std::string_view bo
         return MakeJsonResponse(http::status::bad_request, 
             json::value{{"code", "invalidArgument"}, {"message", "Join game request parse error"}});
     }
-}
-
-http::response<http::string_body> ApiHandler::HandleGetGameState(std::string_view auth_header) {
-    auto token_opt = TryExtractToken(auth_header);
-    if (!token_opt) {
-        return MakeJsonResponse(http::status::unauthorized, 
-            json::value{{"code", "invalidToken"}, {"message", "Authorization header is required"}});
-    }
-
-    auto player = app_.FindPlayerByToken(*token_opt);
-    if (!player) {
-        return MakeJsonResponse(http::status::unauthorized, 
-            json::value{{"code", "unknownToken"}, {"message", "Player token has not been found"}});
-    }
-
-    auto session = player->GetSession();
-    
-    json::object players_obj;
-    for (const auto& dog_ptr : session->GetDogs()) {
-        players_obj[std::to_string(*dog_ptr->GetId())] = json::value_from(*dog_ptr);
-    }
-
-    json::object lost_obj;
-    for (const auto& [loot_id, loot] : session->GetLostObjects()) {
-        lost_obj[std::to_string(loot_id)] = json::value_from(loot);
-    }
-
-    json::object res;
-    res["players"] = players_obj;
-    res["lostObjects"] = lost_obj;
-
-    return MakeJsonResponse(http::status::ok, res);
 }
 
 http::response<http::string_body> ApiHandler::HandleGetPlayers(std::string_view auth_header) {
@@ -169,6 +145,37 @@ http::response<http::string_body> ApiHandler::HandleGetPlayers(std::string_view 
     return MakeJsonResponse(http::status::ok, res);
 }
 
+http::response<http::string_body> ApiHandler::HandleGetGameState(std::string_view auth_header) {
+    auto token_opt = TryExtractToken(auth_header);
+    if (!token_opt) {
+        return MakeJsonResponse(http::status::unauthorized, 
+            json::value{{"code", "invalidToken"}, {"message", "Authorization header is required"}});
+    }
+
+    auto player = app_.FindPlayerByToken(*token_opt);
+    if (!player) {
+        return MakeJsonResponse(http::status::unauthorized, 
+            json::value{{"code", "unknownToken"}, {"message", "Player token has not been found"}});
+    }
+
+    auto session = player->GetSession();
+    json::object players_obj;
+    for (const auto& dog_ptr : session->GetDogs()) {
+        players_obj[std::to_string(*dog_ptr->GetId())] = json::value_from(*dog_ptr);
+    }
+
+    json::object lost_obj;
+    for (const auto& [loot_id, loot] : session->GetLostObjects()) {
+        lost_obj[std::to_string(loot_id)] = json::value_from(loot);
+    }
+
+    json::object res;
+    res["players"] = players_obj;
+    res["lostObjects"] = lost_obj;
+
+    return MakeJsonResponse(http::status::ok, res);
+}
+
 http::response<http::string_body> ApiHandler::HandlePlayerAction(std::string_view auth_header, std::string_view body_str) {
     auto token_opt = TryExtractToken(auth_header);
     if (!token_opt) {
@@ -183,8 +190,9 @@ http::response<http::string_body> ApiHandler::HandlePlayerAction(std::string_vie
     }
 
     try {
-        auto body = json::parse(boost::json::string_view{body_str.data(), body_str.size()});
-        std::string move_cmd = std::string(body.as_object().at("move").as_string());
+        auto body = json::parse({body_str.data(), body_str.size()});
+        if (!body.is_object() || !body.as_object().contains("move")) throw std::runtime_error("bad move");
+        std::string move_cmd = json::value_to<std::string>(body.as_object().at("move"));
         app_.MovePlayer(*token_opt, move_cmd);
         return MakeJsonResponse(http::status::ok, json::object{});
     } catch (...) {
@@ -200,8 +208,11 @@ http::response<http::string_body> ApiHandler::HandleTick(std::string_view body_s
     }
 
     try {
-        auto body = json::parse(boost::json::string_view{body_str.data(), body_str.size()});
-        uint64_t delta = body.as_object().at("timeDelta").as_int64();
+        auto body = json::parse({body_str.data(), body_str.size()});
+        auto delta_val = body.as_object().at("timeDelta");
+        if (!delta_val.is_number()) throw std::runtime_error("not a number");
+        
+        uint64_t delta = delta_val.as_int64();
         app_.Tick(std::chrono::milliseconds(delta));
         return MakeJsonResponse(http::status::ok, json::object{});
     } catch (...) {
@@ -220,8 +231,12 @@ http::response<http::string_body> ApiHandler::MakeJsonResponse(http::status stat
 }
 
 http::response<http::string_body> ApiHandler::MakeJsonResponseWithAllow(http::status status, json::value body, std::string_view allow) {
-    auto res = MakeJsonResponse(status, std::move(body));
-    res.set(http::field::allow, allow);
+    http::response<http::string_body> res{status, 11};
+    res.set(http::field::content_type, "application/json");
+    res.set(http::field::cache_control, "no-cache");
+    res.set(http::field::allow, allow); // Важно: заголовок устанавливается до вызова prepare_payload
+    res.body() = json::serialize(body);
+    res.prepare_payload();
     return res;
 }
 
