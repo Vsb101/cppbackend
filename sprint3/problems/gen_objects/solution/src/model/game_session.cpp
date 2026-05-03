@@ -7,7 +7,7 @@
 
 namespace model {
 
-// 1. Обновленный конструктор с инициализацией генератора
+//  Обновленный конструктор с инициализацией генератора
 GameSession::GameSession(std::shared_ptr<Map> map, loot_gen::LootGenerator loot_gen)
     : map_(std::move(map))
     , id_(*(map_->GetId()))
@@ -22,10 +22,18 @@ std::shared_ptr<Map> GameSession::GetMap() const noexcept {
 }
 
 const std::vector<std::shared_ptr<Dog>>& GameSession::GetDogs() const noexcept {
+    std::lock_guard lock(mutex_); 
     return dogs_;
 }
 
+const std::map<uint32_t, LostObject>& GameSession::GetLostObjects() const noexcept {
+    std::lock_guard lock(mutex_); // Обязательно блокируем, так как Update может менять этот контейнер
+    return lost_objects_;
+}
+
+
 std::shared_ptr<Dog> GameSession::CreateDog(const std::string& name, bool randomize) {
+    std::lock_guard lock(mutex_);
     auto dog = std::make_shared<Dog>(Dog::Id{next_dog_id_++}, name);
     
     const auto& roads = map_->GetRoads(); // Берем все дороги сразу
@@ -109,12 +117,12 @@ void GameSession::GenerateLoot(std::chrono::milliseconds delta) {
 }
 
 void GameSession::Update(double dt_seconds) {
-    // 3. Вызываем генерацию лута (переводим double секунды в миллисекунды)
+    std::lock_guard lock(mutex_);
+    // Вызываем генерацию лута (переводим double секунды в миллисекунды)
     using namespace std::chrono;
     milliseconds delta = duration_cast<milliseconds>(duration<double>(dt_seconds));
     GenerateLoot(delta);
 
-    // --- Твоя логика движения собак (без изменений) ---
     static constexpr double HALF_WIDTH = 0.4;
     static constexpr double EPS = 1e-9;
 

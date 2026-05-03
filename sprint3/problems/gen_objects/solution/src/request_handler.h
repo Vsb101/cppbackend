@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <iostream>
 #include <boost/beast/http.hpp>
 #include <boost/algorithm/string.hpp>
 #include "api/api_handler.h"
@@ -87,19 +88,33 @@ public:
 
     template <typename Body, typename Allocator, typename Send>
     void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
-        if (req.target().starts_with("/api/")) {
-            return api_handler_(std::forward<decltype(req)>(req), std::forward<Send>(send));
+        try {
+            if (req.target().starts_with("/api/")) {
+                // Передаем дальше в API
+                return api_handler_(std::forward<decltype(req)>(req), std::forward<Send>(send));
+            }
+            // Обрабатываем статику
+            HandleStatic(std::forward<decltype(req)>(req), std::forward<Send>(send));
+        } catch (const std::exception& ex) {
+            std::cerr << "RequestHandler exception: " << ex.what() << std::endl;
+            
+            // Если упало, отправляем 500 ошибку. Важно: используем std::move(send)
+            send(MakeErrorResponse(
+                http::status::internal_server_error, 
+                R"({"code": "serverError", "message": "Internal server error"})"sv, 
+                req.version(), 
+                "application/json"sv
+            ));
         }
-        HandleStatic(std::forward<decltype(req)>(req), std::forward<Send>(send));
     }
 
 private:
-    // Вспомогательный метод для создания текстовых ответов об ошибках
     static http::response<http::string_body> MakeErrorResponse(
-        http::status status, std::string_view body, unsigned version, std::string_view content_type = "text/plain"sv) {
+        http::status status, std::string_view body, unsigned version, std::string_view content_type) {
         http::response<http::string_body> res{status, version};
         res.set(http::field::content_type, content_type);
-        res.body() = body;
+        res.set(http::field::cache_control, "no-cache"sv);
+        res.body() = std::string(body);
         res.prepare_payload();
         return res;
     }
@@ -109,46 +124,38 @@ private:
         const auto version = req.version();
         const auto method = req.method();
 
-        // Декодируем и формируем абсолютный путь
         std::string decoded_url = static_utils::DecodeUrl(req.target());
-        
-        // Убираем параметры запроса, если они есть (все после ?)
         std::string_view path_view = decoded_url;
         if (auto pos = path_view.find('?'); pos != std::string_view::npos) {
             path_view = path_view.substr(0, pos);
         }
 
-        fs::path rel_path{path_view.substr(1)}; // убираем ведущий slash
+        fs::path rel_path{path_view.substr(1)};
         fs::path abs_path = fs::weakly_canonical(static_content_path_ / rel_path);
 
-        // сли путь — директория, ищем index.html
         if (fs::is_directory(abs_path)) {
             abs_path /= "index.html"sv;
         }
 
-        // Проверка безопасности: не вышли ли за пределы корня статики
         if (!static_utils::IsSubPath(abs_path, static_content_path_)) {
-            return send(MakeErrorResponse(http::status::bad_request, "Bad Request"sv, version));
+            return send(MakeErrorResponse(http::status::bad_request, "Bad Request"sv, version, "text/plain"sv));
         }
 
-        //  Пытаемся открыть файл
         http::file_body::value_type file;
         boost::system::error_code ec;
         file.open(abs_path.string().c_str(), boost::beast::file_mode::read, ec);
 
         if (ec) {
             if (ec == boost::system::errc::no_such_file_or_directory) {
-                return send(MakeErrorResponse(http::status::not_found, "File Not Found"sv, version));
+                return send(MakeErrorResponse(http::status::not_found, "File Not Found"sv, version, "text/plain"sv));
             }
-            return send(MakeErrorResponse(http::status::internal_server_error, "Internal Error"sv, version));
+            return send(MakeErrorResponse(http::status::internal_server_error, "Internal Error"sv, version, "text/plain"sv));
         }
 
-        // Формируем ответ
         auto size = file.size();
         auto mime_type = static_utils::GetMimeType(abs_path);
 
         if (method == http::verb::get || method == http::verb::head) {
-            // Для HEAD метода используем empty_body, но указываем размер
             if (method == http::verb::head) {
                 http::response<http::empty_body> res{http::status::ok, version};
                 res.set(http::field::content_type, mime_type);
@@ -156,7 +163,6 @@ private:
                 return send(std::move(res));
             }
 
-            // Для GET отдаем файл целиком
             http::response<http::file_body> res{
                 std::piecewise_construct,
                 std::make_tuple(std::move(file)),
@@ -166,8 +172,7 @@ private:
             return send(std::move(res));
         }
 
-        // Для прочих методов (если они дошли до сюда)
-        return send(MakeErrorResponse(http::status::method_not_allowed, "Method Not Allowed"sv, version));
+        return send(MakeErrorResponse(http::status::method_not_allowed, "Method Not Allowed"sv, version, "text/plain"sv));
     }
 
     app::Application& application_;

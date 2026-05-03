@@ -14,10 +14,7 @@
 #include "app/app.h"
 #include "infra/json_loader.h"
 #include "logger/logger.h"
-#include "logger/logging_handler.h"
 #include "request_handler.h"
-#include "other/sdk.h"
-#include <boost/asio/ip/tcp.hpp>
 #include "infra/http_server.h" 
 
 using namespace std::string_literals;
@@ -35,7 +32,6 @@ struct Args {
 std::optional<Args> ParseCommandLine(int argc, const char* argv[]) {
     namespace po = boost::program_options;
     po::options_description desc{"Allowed options"};
-
     Args args;
     desc.add_options()
         ("help,h", "produce help message")
@@ -52,25 +48,20 @@ std::optional<Args> ParseCommandLine(int argc, const char* argv[]) {
         std::cout << desc << std::endl;
         return std::nullopt;
     }
-
     if (!vm.count("config-file") || !vm.count("www-root")) {
         throw std::runtime_error("Config file and www-root paths are required");
     }
-
-    if (vm.count("tick-period")) {
-        args.tick_period = vm["tick-period"].as<uint64_t>();
-    }
-
+    if (vm.count("tick-period")) args.tick_period = vm["tick-period"].as<uint64_t>();
     return args;
 }
 
 void StartAutoTick(std::shared_ptr<net::strand<net::io_context::executor_type>> strand, 
                    std::chrono::milliseconds period, 
-                   app::Application& app) {
+                   std::shared_ptr<app::Application> app) {
     auto timer = std::make_shared<net::steady_timer>(*strand, period);
-    timer->async_wait(net::bind_executor(*strand, [timer, period, &app, strand](sys::error_code ec) {
+    timer->async_wait(net::bind_executor(*strand, [timer, period, app, strand](sys::error_code ec) {
         if (!ec) {
-            app.Tick(period);
+            app->Tick(period);
             timer->expires_at(timer->expiry() + period);
             StartAutoTick(strand, period, app);
         }
@@ -79,17 +70,15 @@ void StartAutoTick(std::shared_ptr<net::strand<net::io_context::executor_type>> 
 
 int main(int argc, const char* argv[]) {
     logger::InitLogger();
-
     try {
         auto args_opt = ParseCommandLine(argc, argv);
         if (!args_opt) return EXIT_SUCCESS;
         const auto& args = *args_opt;
 
-        // 1. Загружаем конфиг (теперь это ProjectConfig)
         auto config = json_loader::LoadGame(args.config_file);
-
-        // 2. Инициализируем Application
-        app::Application application(
+        
+        // Используем shared_ptr для безопасного времени жизни
+        auto application = std::make_shared<app::Application>(
             std::move(config.game), 
             std::move(config.extra_data), 
             args.tick_period.has_value(), 
@@ -98,8 +87,6 @@ int main(int argc, const char* argv[]) {
 
         const unsigned num_threads = std::thread::hardware_concurrency();
         net::io_context ioc(num_threads);
-
-        // 3. Создаем Strand для защиты игрового состояния
         auto strand = std::make_shared<net::strand<net::io_context::executor_type>>(net::make_strand(ioc));
 
         if (args.tick_period) {
@@ -108,21 +95,17 @@ int main(int argc, const char* argv[]) {
 
         net::signal_set signals(ioc, SIGINT, SIGTERM);
         signals.async_wait([&ioc](const sys::error_code& ec, int) {
-            if (!ec) {
-                logger::LogInfo("server was closed"sv);
-                ioc.stop();
-            }
+            if (!ec) ioc.stop();
         });
 
-        // 4. Оборачиваем обработчик в shared_ptr
-        auto handler = std::make_shared<http_handler::RequestHandler>(application, std::filesystem::path(args.www_root));
+        auto handler = std::make_shared<http_handler::RequestHandler>(*application, std::filesystem::path(args.www_root));
 
         const auto address = net::ip::make_address("0.0.0.0");
         constexpr uint16_t port = 8080;
 
-        // 5. Запуск сервера с выполнением всех запросов строго через strand
         http_server::ServeHttp(ioc, {address, port},
             [handler, strand](auto&& req, auto&& send) {
+                // Все запросы СТРОГО через strand
                 net::dispatch(*strand, [handler, req = std::forward<decltype(req)>(req), send = std::forward<decltype(send)>(send)]() mutable {
                     (*handler)(std::move(req), std::move(send));
                 });
@@ -135,13 +118,10 @@ int main(int argc, const char* argv[]) {
             workers.emplace_back([&ioc] { ioc.run(); });
         }
         ioc.run();
-
-        for (auto& t : workers) { t.join(); }
-
-        logger::LogInfo("server exited"sv, logger::ExitCodeLog(0));
+        for (auto& t : workers) { if(t.joinable()) t.join(); }
 
     } catch (const std::exception& ex) {
-        logger::LogError("error"sv, logger::ExceptionLog(EXIT_FAILURE, "Server critical failure"s, ex.what()));
+        logger::LogError("error"sv, logger::ExceptionLog(EXIT_FAILURE, "Server failure"s, ex.what()));
         return EXIT_FAILURE;
     }
 }
