@@ -1,7 +1,7 @@
 #define _USE_MATH_DEFINES
 
 #include "../src/collision_detector.h"
-#include <catch2/catch.hpp>
+#include <catch2/catch_all.hpp>
 #include <vector>
 #include <cmath>
 #include <sstream>
@@ -48,6 +48,8 @@ struct StringMaker<collision_detector::GatheringEvent> {
     }
 };
 }  // namespace Catch
+
+using Catch::Approx;
 
 namespace collision_detector {
 

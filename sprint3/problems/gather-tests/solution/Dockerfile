@@ -6,18 +6,19 @@ RUN apt update && \
       python3-pip \
       cmake \
     && \
-    pip3 install conan==1.53.0
+    pip3 install conan==1.*
 
+WORKDIR /app
 COPY conanfile.txt /app/
-RUN mkdir /app/build && cd /app/build && \
+RUN mkdir build && cd build && \
     conan install .. --build=missing -s compiler.libcxx=libstdc++11 -s build_type=Release
 
-COPY ./src /app/src
-COPY ./tests /app/tests
-COPY CMakeLists.txt /app/
+COPY src /app/src
+COPY tests /app/tests
+COPY CMakeLists.txt /app/CMakeLists.txt
 
-RUN cd /app/build && \
+RUN cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release .. && \
-    cmake --build . && ls
+    cmake --build .
 
-ENTRYPOINT ["/app/build/collision_detection_tests"]
+ENTRYPOINT ["./build/collision_detection_tests"]
