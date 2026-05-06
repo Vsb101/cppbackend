@@ -1,7 +1,7 @@
 #include "json_serialization.h"
 #include "../model/dog.h"
 #include "../model/game_session.h" 
-#include "../model/dog.h"  // Для BagItem
+#include "../model/dog.h"
 
 namespace model {
 
@@ -85,7 +85,6 @@ void tag_invoke(json::value_from_tag, json::value& jv, const Map& map) {
     jv = {{keys::id, *map.GetId()}, {keys::name, map.GetName()},
           {keys::roads, map.GetRoads()}, {keys::buildings, map.GetBuildings()},
           {keys::offices, map.GetOffices()}};
-    // bagCapacity - внутреннее поле, не передаётся клиенту
 }
 
 // === Десериализация: value_to ===
