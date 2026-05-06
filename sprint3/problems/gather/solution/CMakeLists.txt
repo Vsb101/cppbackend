@@ -30,4 +30,8 @@ target_link_libraries(collision_detection_tests PRIVATE
     Threads::Threads
 )
 
+target_compile_options(collision_detection_tests PRIVATE 
+    -I/home/vladimir/.conan/data/catch2/3.5.0/_/_/package/2d3baf6699d9c743852b6d73c81f1517997b5976/include
+)
+
 target_compile_definitions(collision_detection_tests PRIVATE DEBUG_RUN)
