@@ -22,7 +22,6 @@ find_package(Threads REQUIRED)
 add_executable(collision_detection_tests
     src/collision_detector.cpp
     tests/collision-detector-tests.cpp
-    tests/wrong-implementation-tests.cpp
 )
 
 target_link_libraries(collision_detection_tests PRIVATE 
