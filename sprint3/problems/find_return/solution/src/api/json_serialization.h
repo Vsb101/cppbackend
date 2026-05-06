@@ -13,7 +13,7 @@ namespace json = boost::json;
 // Сериализация персонажа
 void tag_invoke(json::value_from_tag, json::value& jv, const Dog& dog);
 void tag_invoke(json::value_from_tag, json::value& jv, const LostObject& loot);
-void tag_invoke(json::value_from_tag, json::value& jv, const BagItem& item);
+void tag_invoke(json::value_from_tag, json::value& jv, const Dog::BagItem& item);
 // ---------------------------
 
 // Сериализация статики (В JSON)

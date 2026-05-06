@@ -64,7 +64,7 @@ SCENARIO("BagItem creation") {
         size_t type = 5;
         
         WHEN("creating BagItem") {
-            model::BagItem item{id, type};
+            model::Dog::BagItem item{id, type};
             
             THEN("item has correct values") {
                 CHECK(item.id == 42);

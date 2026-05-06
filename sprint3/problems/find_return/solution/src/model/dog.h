@@ -12,18 +12,17 @@ enum class Direction { NORTH, SOUTH, WEST, EAST };
 struct Position { double x, y; };
 struct Speed { double vx, vy; };
 
-// Структура предмета в рюкзаке
-struct BagItem {
-    uint32_t id;   // Идентификатор предмета (совпадает с LostObject::id)
-    size_t type;   // Тип предмета
-    
-    BagItem() = default;
-    BagItem(uint32_t item_id, size_t item_type) : id(item_id), type(item_type) {}
-};
-
 class Dog {
 public:
     using Id = util::Tagged<size_t, Dog>;
+
+    struct BagItem {
+        uint32_t id;
+        size_t type;
+
+        BagItem() = default;
+        BagItem(uint32_t item_id, size_t item_type) : id(item_id), type(item_type) {}
+    };
 
     Dog(Id id, std::string name, size_t bag_capacity = 3)
         : id_(std::move(id))
@@ -43,12 +42,10 @@ public:
     const Speed& GetSpeed() const { return speed_; }
     void SetSpeed(Speed speed) { speed_ = speed; }
 
-    // Рюкзак
     const std::vector<BagItem>& GetBag() const { return bag_; }
     size_t GetBagCapacity() const { return bag_capacity_; }
     bool IsBagFull() const { return bag_.size() >= bag_capacity_; }
-    
-    // Добавить предмет в рюкзак
+
     bool AddToBag(uint32_t item_id, size_t item_type) {
         if (bag_.size() >= bag_capacity_) {
             return false;
@@ -56,8 +53,7 @@ public:
         bag_.push_back({item_id, item_type});
         return true;
     }
-    
-    // Очистить рюкзак (возврат на базу)
+
     std::vector<BagItem> ClearBag() {
         std::vector<BagItem> result = std::move(bag_);
         bag_.clear();

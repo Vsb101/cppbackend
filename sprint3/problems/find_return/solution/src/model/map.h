@@ -79,33 +79,25 @@ public:
 
     const Id& GetId() const noexcept { return id_; }
     const std::string& GetName() const noexcept { return name_; }
-    const Buildings& GetBuildings() const noexcept { return buildings_; }
     const Roads& GetRoads() const noexcept { return roads_; }
+    const Buildings& GetBuildings() const noexcept { return buildings_; }
     const Offices& GetOffices() const noexcept { return offices_; }
+
+    const std::vector<const Road*>& GetHorizontalRoadsAt(int y) const;
+    const std::vector<const Road*>& GetVerticalRoadsAt(int x) const;
 
     void AddRoad(const Road& road);
     void AddBuilding(const Building& building) { buildings_.push_back(building); }
     void AddOffice(Office office);
 
-    const std::vector<const Road*>& GetHorizontalRoadsAt(int y) const;
-    const std::vector<const Road*>& GetVerticalRoadsAt(int x) const;
-
     void SetDogSpeed(double speed) { dog_speed_ = speed; }
     double GetDogSpeed() const noexcept { return dog_speed_; }
 
-    // Вместимость рюкзака на карте
     void SetBagCapacity(size_t capacity) { bag_capacity_ = capacity; }
     size_t GetBagCapacity() const noexcept { return bag_capacity_; }
 
-    // --- ДЛЯ ЛУТА ---
-    void SetLootTypesCount(size_t count) { 
-        loot_types_count_ = count; 
-    }
-    
-    size_t GetLootTypesCount() const noexcept { 
-        return loot_types_count_; 
-    }
-    // ----------------------
+    void SetLootTypesCount(size_t count) { loot_types_count_ = count; }
+    size_t GetLootTypesCount() const noexcept { return loot_types_count_; }
 
 private:
     Id id_;
@@ -114,11 +106,8 @@ private:
     Buildings buildings_;
     Offices offices_;
     double dog_speed_ = 0.0;
-    size_t bag_capacity_ = 3;  // Дефолтная вместимость рюкзака
-    
-    // --- ДЛЯ ЛУТА ---
+    size_t bag_capacity_ = 3;
     size_t loot_types_count_ = 0;
-    // ----------------------
 
     std::unordered_map<int, std::vector<const Road*>> horizontal_roads_;
     std::unordered_map<int, std::vector<const Road*>> vertical_roads_;

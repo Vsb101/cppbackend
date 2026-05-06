@@ -6,6 +6,16 @@ namespace model {
 
 using namespace std::literals;
 
+void Map::AddRoad(const Road& road) {
+    roads_.push_back(road);
+    const auto& last_road = roads_.back();
+    if (last_road.IsHorizontal()) {
+        horizontal_roads_[last_road.GetStart().y].push_back(&last_road);
+    } else {
+        vertical_roads_[last_road.GetStart().x].push_back(&last_road);
+    }
+}
+
 void Map::AddOffice(Office office) {
     if (office_id_to_index_.contains(office.GetId())) {
         throw std::invalid_argument("Duplicate office with id "s + *office.GetId());
@@ -20,16 +30,6 @@ void Map::AddOffice(Office office) {
         throw;
     }
 }
-
-void Map::AddRoad(const Road& road) {
-        roads_.push_back(road);
-        const auto& last_road = roads_.back();
-        if (last_road.IsHorizontal()) {
-            horizontal_roads_[last_road.GetStart().y].push_back(&last_road);
-        } else {
-            vertical_roads_[last_road.GetStart().x].push_back(&last_road);
-        }
-    }
 
 const std::vector<const Road*>& Map::GetHorizontalRoadsAt(int y) const {
     static const std::vector<const Road*> empty;

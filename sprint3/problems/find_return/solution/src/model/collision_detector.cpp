@@ -22,8 +22,7 @@ CollectionResult TryCollectPoint(geom::Point2D a, geom::Point2D b, geom::Point2D
     return CollectionResult{sq_distance, proj_ratio};
 }
 
-std::vector<GatheringEvent> FindGatherEvents(
-    const ItemGathererProvider& provider) {
+std::vector<GatheringEvent> FindGatherEvents(const ItemGathererProvider& provider) {
     std::vector<GatheringEvent> detected_events;
 
     static auto eq_pt = [](geom::Point2D p1, geom::Point2D p2) {
@@ -37,14 +36,16 @@ std::vector<GatheringEvent> FindGatherEvents(
         }
         for (size_t i = 0; i < provider.ItemsCount(); ++i) {
             Item item = provider.GetItem(i);
-            auto collect_result = TryCollectPoint(gatherer.start_pos, gatherer.end_pos, item.position);
+            auto collect_result = TryCollectPoint(
+                gatherer.start_pos, gatherer.end_pos, item.position);
 
             if (collect_result.IsCollected(gatherer.width + item.width)) {
-                GatheringEvent evt{.item_id = i,
-                                   .gatherer_id = g,
-                                   .sq_distance = collect_result.sq_distance,
-                                   .time = collect_result.proj_ratio};
-                detected_events.push_back(evt);
+                detected_events.push_back({
+                    .item_id = i,
+                    .gatherer_id = g,
+                    .sq_distance = collect_result.sq_distance,
+                    .time = collect_result.proj_ratio
+                });
             }
         }
     }

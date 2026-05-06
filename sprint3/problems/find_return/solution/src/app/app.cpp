@@ -30,11 +30,6 @@ std::pair<Token, util::Tagged<size_t, Player>> Application::JoinGame(
     return {tokens_.AddPlayer(player), player->GetId()};
 }
 
-std::shared_ptr<Player> Application::FindPlayerByToken(const Token& token) const {
-    std::lock_guard lock(mutex_);
-    return tokens_.FindPlayerByToken(token);
-}
-
 std::vector<std::shared_ptr<Player>> Application::GetPlayersInSession(const Token& token) const {
     std::lock_guard lock(mutex_);
     auto player = tokens_.FindPlayerByToken(token);
@@ -44,13 +39,18 @@ std::vector<std::shared_ptr<Player>> Application::GetPlayersInSession(const Toke
     auto session = player->GetSession();
     if (!session) return {};
     
-    auto session_ptr = session.get(); // Сравниваем указатели для надежности
+    auto session_ptr = session.get();
     for (const auto& p : players_) {
         if (p->GetSession().get() == session_ptr) {
             result.push_back(p);
         }
     }
     return result;
+}
+
+std::shared_ptr<Player> Application::FindPlayerByToken(const Token& token) const {
+    std::lock_guard lock(mutex_);
+    return tokens_.FindPlayerByToken(token);
 }
 
 void Application::MovePlayer(const Token& token, std::string_view move_cmd) {

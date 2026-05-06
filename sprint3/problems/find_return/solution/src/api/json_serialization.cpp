@@ -1,7 +1,6 @@
 #include "json_serialization.h"
 #include "../model/dog.h"
 #include "../model/game_session.h" 
-#include "../model/dog.h"
 
 namespace model {
 
@@ -22,8 +21,8 @@ namespace {
         inline constexpr auto pos = "pos";
         inline constexpr auto speed = "speed";
         inline constexpr auto dir = "dir";
-        inline constexpr auto type = "type"; // Ключ для лута
-        inline constexpr auto bag = "bag";   // Ключ для рюкзака
+        inline constexpr auto type = "type";
+        inline constexpr auto bag = "bag";
     }
 
     std::string_view DirectionToString(Direction d) {
@@ -48,7 +47,7 @@ void tag_invoke(json::value_from_tag, json::value& jv, const LostObject& loot) {
 }
 
 // BagItem
-void tag_invoke(json::value_from_tag, json::value& jv, const BagItem& item) {
+void tag_invoke(json::value_from_tag, json::value& jv, const Dog::BagItem& item) {
     jv = {
         {"id", item.id},
         {"type", item.type}
