@@ -93,8 +93,8 @@ void tag_invoke(json::value_from_tag, json::value& jv, const Map& map) {
 Road tag_invoke(json::value_to_tag<Road>, const json::value& jv) {
     const auto& obj = jv.as_object();
     Point start{json::value_to<Coord>(obj.at(keys::x0)), json::value_to<Coord>(obj.at(keys::y0))};
-    if (obj.contains(keys::x1)) {
-        return Road{Road::HORIZONTAL, start, json::value_to<Coord>(obj.at(keys::x1))};
+    if (auto it = obj.find(keys::x1); it != obj.end()) {
+        return Road{Road::HORIZONTAL, start, json::value_to<Coord>(it->value())};
     }
     return Road{Road::VERTICAL, start, json::value_to<Coord>(obj.at(keys::y1))};
 }
@@ -121,26 +121,24 @@ Map tag_invoke(json::value_to_tag<Map>, const json::value& jv) {
     Map map{Map::Id{json::value_to<std::string>(obj.at(keys::id))}, 
             json::value_to<std::string>(obj.at(keys::name))};
 
-    // БЕЗОПАСНОЕ чтение массивов
-    if (obj.contains(keys::roads)) {
-        for (const auto& r : obj.at(keys::roads).as_array()) {
+    if (auto it = obj.find(keys::roads); it != obj.end()) {
+        for (const auto& r : it->value().as_array()) {
             map.AddRoad(json::value_to<Road>(r));
         }
     }
-    if (obj.contains(keys::buildings)) {
-        for (const auto& b : obj.at(keys::buildings).as_array()) {
+    if (auto it = obj.find(keys::buildings); it != obj.end()) {
+        for (const auto& b : it->value().as_array()) {
             map.AddBuilding(json::value_to<Building>(b));
         }
     }
-    if (obj.contains(keys::offices)) {
-        for (const auto& o : obj.at(keys::offices).as_array()) {
+    if (auto it = obj.find(keys::offices); it != obj.end()) {
+        for (const auto& o : it->value().as_array()) {
             map.AddOffice(json::value_to<Office>(o));
         }
     }
     return map;
 }
-
-
+  
 }  // namespace model
 
 namespace app {

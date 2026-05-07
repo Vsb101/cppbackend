@@ -91,16 +91,16 @@ public:
     void AddOffice(Office office);
 
     void SetDogSpeed(double speed) { dog_speed_ = speed; }
-    double GetDogSpeed() const noexcept { return dog_speed_; }
+    [[nodiscard]] double GetDogSpeed() const noexcept { return dog_speed_; }
 
     void SetBagCapacity(size_t capacity) { bag_capacity_ = capacity; }
-    size_t GetBagCapacity() const noexcept { return bag_capacity_; }
+    [[nodiscard]] size_t GetBagCapacity() const noexcept { return bag_capacity_; }
 
     void SetLootTypesCount(size_t count) { loot_types_count_ = count; }
-    size_t GetLootTypesCount() const noexcept { return loot_types_count_; }
+    [[nodiscard]] size_t GetLootTypesCount() const noexcept { return loot_types_count_; }
 
     void SetLootTypeValue(size_t type, int value);
-    int GetLootTypeValue(size_t type) const;
+    [[nodiscard]] int GetLootTypeValue(size_t type) const;
 
 private:
     Id id_;

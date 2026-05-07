@@ -27,23 +27,23 @@ private:
     app::Application& app_;
 
     // Основной роутер
-    http::response<http::string_body> HandleRequest(const http::request<http::string_body>& req);
+    [[nodiscard]] http::response<http::string_body> HandleRequest(const http::request<http::string_body>& req);
 
     // Обработчики эндпоинтов
-    http::response<http::string_body> HandleGetMaps();
-    http::response<http::string_body> HandleGetMapById(std::string_view id);
-    http::response<http::string_body> HandleJoinGame(std::string_view body_str);
-    http::response<http::string_body> HandleGetPlayers(std::string_view auth_header);
-    http::response<http::string_body> HandleGetGameState(std::string_view auth_header); // <--- Проверь это
-    http::response<http::string_body> HandlePlayerAction(std::string_view auth_header, std::string_view body_str);
-    http::response<http::string_body> HandleTick(std::string_view body_str);
+    [[nodiscard]] http::response<http::string_body> HandleGetMaps();
+    [[nodiscard]] http::response<http::string_body> HandleGetMapById(std::string_view id);
+    [[nodiscard]] http::response<http::string_body> HandleJoinGame(std::string_view body_str);
+    [[nodiscard]] http::response<http::string_body> HandleGetPlayers(std::string_view auth_header);
+    [[nodiscard]] http::response<http::string_body> HandleGetGameState(std::string_view auth_header);
+    [[nodiscard]] http::response<http::string_body> HandlePlayerAction(std::string_view auth_header, std::string_view body_str);
+    [[nodiscard]] http::response<http::string_body> HandleTick(std::string_view body_str);
 
     // Вспомогательные функции
-    http::response<http::string_body> MakeJsonResponse(http::status status, json::value body);
-    http::response<http::string_body> MakeJsonResponseWithAllow(http::status status, json::value body, std::string_view allow);
+    [[nodiscard]] http::response<http::string_body> MakeJsonResponse(http::status status, json::value body);
+    [[nodiscard]] http::response<http::string_body> MakeJsonResponseWithAllow(http::status status, json::value body, std::string_view allow);
     
     // Для проверки токенов
-    std::optional<app::Token> TryExtractToken(std::string_view auth_header);
+    [[nodiscard]] std::optional<app::Token> TryExtractToken(std::string_view auth_header);
 };
 
 } // namespace http_handler

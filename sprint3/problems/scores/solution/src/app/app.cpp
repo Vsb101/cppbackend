@@ -36,6 +36,7 @@ std::vector<std::shared_ptr<Player>> Application::GetPlayersInSession(const Toke
     if (!player) return {};
 
     std::vector<std::shared_ptr<Player>> result;
+    result.reserve(players_.size());
     auto session = player->GetSession();
     if (!session) return {};
     
@@ -87,7 +88,7 @@ void Application::MovePlayer(const Token& token, std::string_view move_cmd) {
 
 void Application::Tick(std::chrono::milliseconds delta) {
     std::lock_guard lock(mutex_);
-    double dt_seconds = delta.count() / 1000.0;
+    double dt_seconds = std::chrono::duration<double>(delta).count();
     for (auto& [id, session] : game_.GetSessions()) {
         if (session) {
             session->Update(dt_seconds);

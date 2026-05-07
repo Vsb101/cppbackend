@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 #include <utility>
-#include <map>
+#include <unordered_map>
 #include <chrono>
 #include <mutex> 
 
@@ -35,32 +35,32 @@ class GameSession {
 
     GameSession(std::shared_ptr<Map> map, loot_gen::LootGenerator loot_gen);
 
-    std::shared_ptr<Dog> CreateDog(const std::string& name, bool randomize = false);
+    [[nodiscard]] std::shared_ptr<Dog> CreateDog(const std::string& name, bool randomize = false);
     void Update(double dt_seconds);
 
     [[nodiscard]] const Id& GetId() const noexcept;
     [[nodiscard]] std::shared_ptr<Map> GetMap() const noexcept;
     [[nodiscard]] const std::vector<std::shared_ptr<Dog>>& GetDogs() const noexcept;
-    [[nodiscard]] const std::map<uint32_t, LostObject>& GetLostObjects() const noexcept;
+    [[nodiscard]] const std::unordered_map<uint32_t, LostObject>& GetLostObjects() const noexcept;
 
  private:
     // --- Движение ---
-    std::vector<DogMovement> PrepareDogMovements();
+    [[nodiscard]] std::vector<DogMovement> PrepareDogMovements();
     void MoveDogs(double dt_seconds, std::vector<DogMovement>& movements);
 
     // --- Сбор предметов ---
     void ProcessGatherEvents(const std::vector<DogMovement>& movements);
-    Position GetEventPosition(const DogMovement& movement, double time) const;
-    bool IsDogAtOffice(const Position& pos) const;
+    [[nodiscard]] Position GetEventPosition(const DogMovement& movement, double time) const;
+    [[nodiscard]] bool IsDogAtOffice(const Position& pos) const;
 
     // --- Генерация лута ---
     void GenerateLoot(std::chrono::milliseconds delta);
     void PutDogInRndPosition(std::shared_ptr<Dog> dog);
 
     // --- Работа с дорогами ---
-    const Road* FindRoadAndBounds(Position pos) const;
-    std::vector<const Road*> FindRoadsAtPosition(Position pos) const;
-    bool IsPositionOnRoad(Position pos, const Road& road) const;
+    [[nodiscard]] const Road* FindRoadAndBounds(Position pos) const;
+    [[nodiscard]] std::vector<const Road*> FindRoadsAtPosition(Position pos) const;
+    [[nodiscard]] bool IsPositionOnRoad(Position pos, const Road& road) const;
 
     // --- Данные ---
     std::shared_ptr<Map> map_;
@@ -69,7 +69,7 @@ class GameSession {
     size_t next_dog_id_ = 0;
 
     loot_gen::LootGenerator loot_generator_;
-    std::map<uint32_t, LostObject> lost_objects_;
+    std::unordered_map<uint32_t, LostObject> lost_objects_;
     uint32_t next_loot_id_ = 0;
 
     mutable std::mutex mutex_;

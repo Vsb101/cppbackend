@@ -16,11 +16,23 @@ constexpr double DOG_WIDTH = 0.6;
 constexpr double BASE_WIDTH = 0.5;
 constexpr double ITEM_WIDTH = 0.0;
 
+// Геометрия
+constexpr double HALF_WIDTH = 0.4;
+constexpr double EPS = 1e-9;
+constexpr double EPS_POSITION = 0.001;
+constexpr double INF = 1e9;
+constexpr double OFFICE_COLLECTION_RADIUS = BASE_WIDTH / 2 + DOG_WIDTH / 2;
+constexpr double OFFICE_COLLECTION_RADIUS_SQ = OFFICE_COLLECTION_RADIUS * OFFICE_COLLECTION_RADIUS;
+constexpr double ITEM_COLLECTION_RADIUS = DOG_WIDTH / 2;
+constexpr double ITEM_COLLECTION_RADIUS_SQ = ITEM_COLLECTION_RADIUS * ITEM_COLLECTION_RADIUS;
+
 class DogGathererProvider : public collision_detector::ItemGathererProvider {
 public:
     DogGathererProvider(const std::vector<DogMovement>& movements,
-                        const std::map<uint32_t, LostObject>& lost_objects)
+                        const std::unordered_map<uint32_t, LostObject>& lost_objects)
         : movements_(movements) {
+        item_ids_.reserve(lost_objects.size());
+        item_positions_.reserve(lost_objects.size());
         for (const auto& [id, loot] : lost_objects) {
             if (!loot.collected) {
                 item_ids_.push_back(id);
@@ -132,7 +144,7 @@ const std::vector<std::shared_ptr<Dog>>& GameSession::GetDogs() const noexcept {
     return dogs_;
 }
 
-const std::map<uint32_t, LostObject>& GameSession::GetLostObjects() const noexcept {
+const std::unordered_map<uint32_t, LostObject>& GameSession::GetLostObjects() const noexcept {
     std::lock_guard lock(mutex_);
     return lost_objects_;
 }
@@ -154,9 +166,6 @@ std::vector<DogMovement> GameSession::PrepareDogMovements() {
 }
 
 void GameSession::MoveDogs(double dt_seconds, std::vector<DogMovement>& movements) {
-    static constexpr double HALF_WIDTH = 0.4;
-    static constexpr double EPS = 1e-9;
-
     for (size_t idx = 0; idx < dogs_.size(); ++idx) {
         auto& dog = dogs_[idx];
         auto& movement = movements[idx];
@@ -170,9 +179,11 @@ void GameSession::MoveDogs(double dt_seconds, std::vector<DogMovement>& movement
             Position pos = dog->GetPosition();
             auto roads = FindRoadsAtPosition(pos);
 
-            if (roads.empty()) break;
+            if (roads.empty()) {
+                break;
+            }
 
-            double min_x = 1e9, max_x = -1e9, min_y = 1e9, max_y = -1e9;
+            double min_x = INF, max_x = -INF, min_y = INF, max_y = -INF;
             for (const auto* r : roads) {
                 auto s = r->GetStart();
                 auto e = r->GetEnd();
@@ -235,7 +246,7 @@ void GameSession::ProcessGatherEvents(const std::vector<DogMovement>& movements)
     DogGathererProvider provider(movements, lost_objects_);
     auto events = collision_detector::FindGatherEvents(provider);
 
-    std::map<uint32_t, std::pair<size_t, double>> item_events;
+    std::unordered_map<uint32_t, std::pair<size_t, double>> item_events;
 
     for (const auto& evt : events) {
         uint32_t item_id = provider.GetItemId(evt.item_id);
@@ -252,6 +263,7 @@ void GameSession::ProcessGatherEvents(const std::vector<DogMovement>& movements)
     };
 
     std::vector<EventWithTime> sorted_events;
+    sorted_events.reserve(item_events.size());
     for (const auto& [item_id, dog_time_pair] : item_events) {
         const auto& [dog_idx, time] = dog_time_pair;
         sorted_events.push_back({item_id, dog_idx, time});
@@ -261,6 +273,13 @@ void GameSession::ProcessGatherEvents(const std::vector<DogMovement>& movements)
               [](const EventWithTime& a, const EventWithTime& b) {
                   return a.time < b.time;
               });
+
+    // Кэшируем стоимости типов предметов
+    auto loot_types_count = map_->GetLootTypesCount();
+    std::vector<int> loot_type_values(loot_types_count);
+    for (size_t i = 0; i < loot_types_count; ++i) {
+        loot_type_values[i] = map_->GetLootTypeValue(i);
+    }
 
     for (const auto& evt : sorted_events) {
         auto& dog = dogs_[evt.dog_idx];
@@ -275,7 +294,7 @@ void GameSession::ProcessGatherEvents(const std::vector<DogMovement>& movements)
         if (IsDogAtOffice(event_pos)) {
             auto returned_items = dog->ClearBag();
             for (const auto& item : returned_items) {
-                dog->AddScore(map_->GetLootTypeValue(item.type));
+                dog->AddScore(loot_type_values[item.type]);
             }
         }
 
@@ -307,8 +326,8 @@ bool GameSession::IsDogAtOffice(const Position& pos) const {
         auto off_pos = office.GetPosition();
         double dx = pos.x - static_cast<double>(off_pos.x);
         double dy = pos.y - static_cast<double>(off_pos.y);
-        double dist = std::sqrt(dx * dx + dy * dy);
-        if (dist <= (BASE_WIDTH / 2 + DOG_WIDTH / 2)) {
+        double sq_dist = dx * dx + dy * dy;
+        if (sq_dist <= OFFICE_COLLECTION_RADIUS_SQ) {
             return true;
         }
     }
@@ -393,6 +412,7 @@ const Road* GameSession::FindRoadAndBounds(Position pos) const {
 
 std::vector<const Road*> GameSession::FindRoadsAtPosition(Position pos) const {
     std::vector<const Road*> result;
+    result.reserve(map_->GetHorizontalRoadsAt(pos.y).size() + map_->GetVerticalRoadsAt(pos.x).size());
     int x = static_cast<int>(std::round(pos.x));
     int y = static_cast<int>(std::round(pos.y));
 
@@ -406,16 +426,13 @@ std::vector<const Road*> GameSession::FindRoadsAtPosition(Position pos) const {
 }
 
 bool GameSession::IsPositionOnRoad(Position pos, const Road& road) const {
-    static constexpr double HALF_WIDTH = 0.4;
-    static constexpr double EPS = 0.001;
-
     auto start = road.GetStart();
     auto end = road.GetEnd();
     auto [x_min, x_max] = std::minmax({static_cast<double>(start.x), static_cast<double>(end.x)});
     auto [y_min, y_max] = std::minmax({static_cast<double>(start.y), static_cast<double>(end.y)});
 
-    return (pos.x >= x_min - HALF_WIDTH - EPS && pos.x <= x_max + HALF_WIDTH + EPS &&
-            pos.y >= y_min - HALF_WIDTH - EPS && pos.y <= y_max + HALF_WIDTH + EPS);
+    return (pos.x >= x_min - HALF_WIDTH - EPS_POSITION && pos.x <= x_max + HALF_WIDTH + EPS_POSITION &&
+            pos.y >= y_min - HALF_WIDTH - EPS_POSITION && pos.y <= y_max + HALF_WIDTH + EPS_POSITION);
 }
 
 }  // namespace model

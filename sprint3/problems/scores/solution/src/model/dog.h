@@ -31,22 +31,22 @@ public:
     }
 
     const Id& GetId() const { return id_; }
-    const std::string& GetName() const { return name_; }
+    [[nodiscard]] const std::string& GetName() const { return name_; }
 
-    Direction GetDirection() const { return direction_; }
+    [[nodiscard]] Direction GetDirection() const { return direction_; }
     void SetDirection(Direction direction) { direction_ = direction; }
 
-    const Position& GetPosition() const { return position_; }
+    [[nodiscard]] const Position& GetPosition() const { return position_; }
     void SetPosition(Position position) { position_ = position; }
 
-    const Speed& GetSpeed() const { return speed_; }
+    [[nodiscard]] const Speed& GetSpeed() const { return speed_; }
     void SetSpeed(Speed speed) { speed_ = speed; }
 
-    const std::vector<BagItem>& GetBag() const { return bag_; }
-    size_t GetBagCapacity() const { return bag_capacity_; }
-    bool IsBagFull() const { return bag_.size() >= bag_capacity_; }
+    [[nodiscard]] const std::vector<BagItem>& GetBag() const { return bag_; }
+    [[nodiscard]] size_t GetBagCapacity() const { return bag_capacity_; }
+    [[nodiscard]] bool IsBagFull() const { return bag_.size() >= bag_capacity_; }
 
-    int GetScore() const { return score_; }
+    [[nodiscard]] int GetScore() const { return score_; }
     void AddScore(int points) { score_ += points; }
 
     bool AddToBag(uint32_t item_id, size_t item_type) {

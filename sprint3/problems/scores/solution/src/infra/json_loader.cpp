@@ -37,28 +37,27 @@ ProjectConfig LoadGame(const std::filesystem::path& json_path) {
     ProjectConfig config;
 
     // Читаем настройки генератора (с дефолтными значениями для защиты от 503)
-    if (root_obj.contains("lootGeneratorConfig")) {
-        auto& lgc = root_obj.at("lootGeneratorConfig").as_object();
+    if (auto it = root_obj.find("lootGeneratorConfig"); it != root_obj.end()) {
+        auto& lgc = it->value().as_object();
         config.game.SetLootGeneratorConfig({
             lgc.at("period").as_double(),
             lgc.at("probability").as_double()
         });
     } else {
-        // Если в конфиге нет настроек генератора, ставим безопасные значения
         config.game.SetLootGeneratorConfig({1.0, 0.1});
     }
 
     // Скорость по умолчанию
     double default_speed = 1.0;
-    if (root_obj.contains("defaultDogSpeed")) {
-        default_speed = root_obj.at("defaultDogSpeed").as_double();
+    if (auto it = root_obj.find("defaultDogSpeed"); it != root_obj.end()) {
+        default_speed = it->value().as_double();
     }
     config.game.SetDefaultDogSpeed(default_speed);
 
     // Вместимость рюкзака по умолчанию
     size_t default_bag_capacity = 3;
-    if (root_obj.contains("defaultBagCapacity")) {
-        default_bag_capacity = static_cast<size_t>(root_obj.at("defaultBagCapacity").as_int64());
+    if (auto it = root_obj.find("defaultBagCapacity"); it != root_obj.end()) {
+        default_bag_capacity = static_cast<size_t>(it->value().as_int64());
     }
     
     // Читаем карты
@@ -78,30 +77,30 @@ ProjectConfig LoadGame(const std::filesystem::path& json_path) {
         auto map = json::value_to<model::Map>(map_jv);
 
         // Установка скорости (карта или дефолт)
-        if (map_obj.contains("dogSpeed")) {
-            map.SetDogSpeed(map_obj.at("dogSpeed").as_double());
+        if (auto it = map_obj.find("dogSpeed"); it != map_obj.end()) {
+            map.SetDogSpeed(it->value().as_double());
         } else {
             map.SetDogSpeed(default_speed);
         }
 
         // Установка вместимости рюкзака (карта или дефолт)
-        if (map_obj.contains("bagCapacity")) {
-            map.SetBagCapacity(static_cast<size_t>(map_obj.at("bagCapacity").as_int64()));
+        if (auto it = map_obj.find("bagCapacity"); it != map_obj.end()) {
+            map.SetBagCapacity(static_cast<size_t>(it->value().as_int64()));
         } else {
             map.SetBagCapacity(default_bag_capacity);
         }
 
         // Работа с LootTypes (Экстра-данные)
-        if (map_obj.contains("lootTypes")) {
-            auto& loot_types = map_obj.at("lootTypes").as_array();
+        if (auto it = map_obj.find("lootTypes"); it != map_obj.end()) {
+            auto& loot_types = it->value().as_array();
             if (loot_types.empty()) {
                 throw std::runtime_error("Map '"s + *map.GetId() + "' must have at least one loot type");
             }
             map.SetLootTypesCount(loot_types.size());
             for (size_t i = 0; i < loot_types.size(); ++i) {
                 int value = 0;
-                if (loot_types[i].as_object().contains("value")) {
-                    value = static_cast<int>(loot_types[i].as_object().at("value").as_int64());
+                if (auto val_it = loot_types[i].as_object().find("value"); val_it != loot_types[i].as_object().end()) {
+                    value = static_cast<int>(val_it->value().as_int64());
                 }
                 map.SetLootTypeValue(i, value);
             }

@@ -54,8 +54,8 @@ SCENARIO("Game session with loot generation") {
         model::GameSession session(map, std::move(loot_gen));
         
         WHEN("creating dogs") {
-            session.CreateDog("dog1"s);
-            session.CreateDog("dog2"s);
+            auto dog1 = session.CreateDog("dog1"s);
+            auto dog2 = session.CreateDog("dog2"s);
             
             THEN("dogs are created") {
                 REQUIRE(session.GetDogs().size() == 2);

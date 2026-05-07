@@ -29,8 +29,10 @@ std::shared_ptr<GameSession> Game::FindOrCreateSession(const Map::Id& id) {
     }
     
     auto map = FindMap(id);
-    if (!map) return nullptr;
-
+    if (!map) {
+        return nullptr;
+    }
+    
     // Создаем генератор: переводим секунды из конфига в миллисекунды
     auto period_ms = std::chrono::milliseconds(
         static_cast<int64_t>(loot_generator_config_.period * 1000)

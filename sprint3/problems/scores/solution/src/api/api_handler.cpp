@@ -2,6 +2,7 @@
 #include "json_serialization.h"
 #include "endpoints.h"
 #include <chrono>
+#include <charconv>
 
 namespace http_handler {
 
@@ -11,8 +12,10 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
     auto target = req.target();
     auto method = req.method();
 
+    static constexpr std::string_view MAPS_PATH = api::Endpoints::GetMaps();
+
     // 1. Список всех карт
-    if (target == api::Endpoints::GetMaps() || target == (std::string(api::Endpoints::GetMaps()) + "/")) {
+    if (target == MAPS_PATH || (target.length() == MAPS_PATH.length() + 1 && target.compare(0, MAPS_PATH.length(), MAPS_PATH) == 0 && target.back() == '/')) {
         if (method == http::verb::get || method == http::verb::head) return HandleGetMaps();
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
@@ -98,25 +101,27 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(std::string_view bo
         auto body = json::parse({body_str.data(), body_str.size()});
         auto const& obj = body.as_object();
         
-        if (!obj.contains("userName") || !obj.contains("mapId")) {
+        auto name_it = obj.find("userName");
+        auto map_id_it = obj.find("mapId");
+        if (name_it == obj.end() || map_id_it == obj.end()) {
              throw std::invalid_argument("missing fields");
         }
 
-        std::string name = json::value_to<std::string>(obj.at("userName"));
-        std::string map_id_str = json::value_to<std::string>(obj.at("mapId"));
+        std::string_view name = json::value_to<std::string_view>(name_it->value());
+        std::string_view map_id_str = json::value_to<std::string_view>(map_id_it->value());
 
         if (name.empty()) {
             return MakeJsonResponse(http::status::bad_request, 
                 json::value{{"code", "invalidArgument"}, {"message", "Invalid name"}});
         }
 
-        model::Map::Id map_id{map_id_str};
+        model::Map::Id map_id{std::string(map_id_str)};
         if (!app_.GetGame().FindMap(map_id)) {
             return MakeJsonResponse(http::status::not_found, 
                 json::value{{"code", "mapNotFound"}, {"message", "Map not found"}});
         }
 
-        auto [token, player_id] = app_.JoinGame(name, map_id);
+        auto [token, player_id] = app_.JoinGame(std::string(name), map_id);
         return MakeJsonResponse(http::status::ok, 
             json::value{{"authToken", *token}, {"playerId", *player_id}});
     } catch (...) {
@@ -140,7 +145,9 @@ http::response<http::string_body> ApiHandler::HandleGetPlayers(std::string_view 
     
     json::object res;
     for (const auto& p : players) {
-        res[std::to_string(*p->GetId())] = json::value{{"name", p->GetName()}};
+        char buf[20];
+        auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), *p->GetId());
+        res[{buf, static_cast<size_t>(ptr - buf)}] = json::value{{"name", p->GetName()}};
     }
     return MakeJsonResponse(http::status::ok, res);
 }
@@ -161,12 +168,16 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(std::string_vie
     auto session = player->GetSession();
     json::object players_obj;
     for (const auto& dog_ptr : session->GetDogs()) {
-        players_obj[std::to_string(*dog_ptr->GetId())] = json::value_from(*dog_ptr);
+        char buf[20];
+        auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), *dog_ptr->GetId());
+        players_obj[{buf, static_cast<size_t>(ptr - buf)}] = json::value_from(*dog_ptr);
     }
 
     json::object lost_obj;
     for (const auto& [loot_id, loot] : session->GetLostObjects()) {
-        lost_obj[std::to_string(loot_id)] = json::value_from(loot);
+        char buf[20];
+        auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), loot_id);
+        lost_obj[{buf, static_cast<size_t>(ptr - buf)}] = json::value_from(loot);
     }
 
     json::object res;
@@ -191,8 +202,9 @@ http::response<http::string_body> ApiHandler::HandlePlayerAction(std::string_vie
 
     try {
         auto body = json::parse({body_str.data(), body_str.size()});
-        if (!body.is_object() || !body.as_object().contains("move")) throw std::runtime_error("bad move");
-        std::string move_cmd = json::value_to<std::string>(body.as_object().at("move"));
+        auto move_it = body.as_object().find("move");
+        if (!body.is_object() || move_it == body.as_object().end()) throw std::runtime_error("bad move");
+        std::string_view move_cmd = json::value_to<std::string_view>(move_it->value());
         app_.MovePlayer(*token_opt, move_cmd);
         return MakeJsonResponse(http::status::ok, json::object{});
     } catch (...) {
@@ -209,7 +221,9 @@ http::response<http::string_body> ApiHandler::HandleTick(std::string_view body_s
 
     try {
         auto body = json::parse({body_str.data(), body_str.size()});
-        auto delta_val = body.as_object().at("timeDelta");
+        auto delta_it = body.as_object().find("timeDelta");
+        if (delta_it == body.as_object().end()) throw std::runtime_error("not a number");
+        auto delta_val = delta_it->value();
         if (!delta_val.is_number()) throw std::runtime_error("not a number");
         
         uint64_t delta = delta_val.as_int64();
@@ -234,18 +248,27 @@ http::response<http::string_body> ApiHandler::MakeJsonResponseWithAllow(http::st
     http::response<http::string_body> res{status, 11};
     res.set(http::field::content_type, "application/json");
     res.set(http::field::cache_control, "no-cache");
-    res.set(http::field::allow, allow); // Важно: заголовок устанавливается до вызова prepare_payload
+    res.set(http::field::allow, allow);
     res.body() = json::serialize(body);
     res.prepare_payload();
     return res;
 }
 
 std::optional<app::Token> ApiHandler::TryExtractToken(std::string_view auth_header) {
-    if (auth_header.empty() || !auth_header.starts_with("Bearer ") || auth_header.size() <= 7) {
+    constexpr std::string_view AUTH_PREFIX = "Bearer ";
+    constexpr size_t EXPECTED_TOKEN_LENGTH = 32;
+
+    if (auth_header.empty() || 
+        !auth_header.starts_with(AUTH_PREFIX) || 
+        auth_header.size() <= AUTH_PREFIX.size()) {
         return std::nullopt;
     }
-    std::string token_str(auth_header.substr(7));
-    if (token_str.size() != 32) return std::nullopt;
+
+    std::string token_str(auth_header.substr(AUTH_PREFIX.size()));
+    if (token_str.size() != EXPECTED_TOKEN_LENGTH) {
+        return std::nullopt;
+    }
+
     return app::Token{std::move(token_str)};
 }
 
