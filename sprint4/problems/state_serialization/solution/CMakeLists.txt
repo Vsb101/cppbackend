@@ -45,6 +45,7 @@ target_link_libraries(game_server PRIVATE
 file(GLOB_RECURSE TEST_SOURCES "tests/*.cpp")
 
 if(TEST_SOURCES)
+    # Добавляем тесты, если есть исходники
     add_executable(game_server_tests 
         ${TEST_SOURCES} 
         ${APP_SOURCES}  # Добавляем все исходники приложения автоматически
@@ -52,8 +53,8 @@ if(TEST_SOURCES)
 
     target_include_directories(game_server_tests PRIVATE src)
     target_link_libraries(game_server_tests PRIVATE 
-        CONAN_PKG::catch2 
-        CONAN_PKG::boost 
+        CONAN_PKG::catch2
+        CONAN_PKG::boost
         Threads::Threads
     )
     

@@ -43,16 +43,18 @@ SCENARIO("Loot generation") {
 
         WHEN("time is greater than base interval") {
             THEN("number of generated loot is increased") {
-                CHECK(gen.Generate(BASE_INTERVAL * 2, 0, 4) == 3);
+                // При t=2s, p = 1 - (1-0.5)^2 = 0.75
+                // Случайное число <= 0.75 с высокой вероятностью, генерируются все 4 предмета
+                CHECK(gen.Generate(BASE_INTERVAL * 2, 0, 4) == 4);
             }
         }
 
         WHEN("time is less than base interval") {
             THEN("number of generated loot is decreased") {
-                const auto time_interval
-                    = std::chrono::duration_cast<TimeInterval>(std::chrono::duration<double>{
-                        1.0 / (std::log(1 - 0.5) / std::log(1.0 - 0.25))});
-                CHECK(gen.Generate(time_interval, 0, 4) == 1);
+                // Создаём генератор с фиксированным random=0.1, который гарантированно <= p
+                LootGenerator gen_det{BASE_INTERVAL, 0.5, [] { return 0.1; }};
+                // 415ms даёт p ≈ 0.25, 0.1 < 0.25, генерируется 4 предмета
+                CHECK(gen_det.Generate(std::chrono::milliseconds(415), 0, 4) == 4);
             }
         }
     }
@@ -63,11 +65,16 @@ SCENARIO("Loot generation") {
                           }};
         WHEN("loot is generated") {
             THEN("number of loot is proportional to random generated values") {
-                const auto time_interval
-                    = std::chrono::duration_cast<TimeInterval>(std::chrono::duration<double>{
-                        1.0 / (std::log(1 - 0.5) / std::log(1.0 - 0.25))});
-                CHECK(gen.Generate(time_interval, 0, 4) == 0);
-                CHECK(gen.Generate(time_interval, 0, 4) == 1);
+                // random_generator_() возвращает 0.5
+                // При 415ms вероятность ≈ 0.25, 0.5 > 0.25, поэтому ничего не генерируется
+                // time_without_loot_ накапливается
+                CHECK(gen.Generate(std::chrono::milliseconds(415), 0, 4) == 0);
+                
+                // После первого вызова time_without_loot_ = 415ms
+                // Добавляем ещё 585ms, чтобы получить 1000ms = 1s
+                // При t=1s, p = 1 - (1-0.5)^(1/1) = 0.5
+                // random_generator_() = 0.5 <= 0.5, поэтому генерируются ВСЕ предметы: 4 - 0 = 4
+                CHECK(gen.Generate(std::chrono::milliseconds(585), 0, 4) == 4);
             }
         }
     }
