@@ -20,11 +20,11 @@ std::string AddBookCommand::Execute(std::string_view line) {
 
     std::string_view payload = line.substr(start_brace, end_brace - start_brace + 1);
 
-    auto title_opt = JsonParser::ExtractStringValue(payload, "title");
-    auto author_opt = JsonParser::ExtractStringValue(payload, "author");
-    auto year_opt = JsonParser::ExtractIntValue(payload, "year");
+    auto title_opt =    JsonParser::ExtractStringValue(payload, "title");
+    auto author_opt =   JsonParser::ExtractStringValue(payload, "author");
+    auto year_opt =     JsonParser::ExtractIntValue(payload, "year");
     bool is_null_isbn = JsonParser::ExtractNullValue(payload, "ISBN");
-    auto isbn_opt = JsonParser::ExtractStringValue(payload, "ISBN");
+    auto isbn_opt =     JsonParser::ExtractStringValue(payload, "ISBN");
 
     if (!title_opt || !author_opt || !year_opt) {
         return "{\"result\":false}";
@@ -34,16 +34,13 @@ std::string AddBookCommand::Execute(std::string_view line) {
         return "{\"result\":false}";
     }
 
-    Book new_book;
-    new_book.title = std::move(*title_opt);
-    new_book.author = std::move(*author_opt);
-    new_book.year = *year_opt;
-    
-    if (is_null_isbn || !isbn_opt || isbn_opt->empty()) {
-        new_book.isbn = std::nullopt;
-    } else {
-        new_book.isbn = std::move(*isbn_opt);
-    }
+    Book new_book{
+        .id = 0, // Поле id по умолчанию, в БД оно сгенерируется через SERIAL
+        .title = std::move(*title_opt),
+        .author = std::move(*author_opt),
+        .year = *year_opt,
+        .isbn = (is_null_isbn || !isbn_opt || isbn_opt->empty()) ? std::nullopt : std::make_optional(std::move(*isbn_opt))
+    };
 
     bool success = repo_.Add(new_book);
  
