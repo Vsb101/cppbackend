@@ -1,0 +1,881 @@
+@startuml
+' ============================================================================
+' DIAграмма классов Game Server Project
+' Полная архитектура с детализацией всех компонентов
+' ============================================================================
+
+skinparam classAttributeIconSize 0
+skinparam classBackgroundColor White
+skinparam classBorderColor Black
+skinparam classFontSize 12
+skinparam noteFontSize 11
+skinparam arrowColor #555555
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultArrowColor #555555
+
+' ============================================================================
+' ВСПОМОГАТЕЛЬНЫЕ ТИПЫ И УТИЛИТЫ
+' ============================================================================
+
+package "util" {
+    class Tagged<Value, Tag> <<Type-Safe Wrapper>> {
+        + ValueType: type
+        + TagType: type
+        + value_: Value
+        + Tagged(v: Value)
+        + GetValue(): const Value&
+        + operator*(): const Value&
+        + operator<=>(const Tagged&): auto
+    }
+    
+    class TaggedHasher<TaggedValue> <<Hash Function>> {
+        + operator()(const TaggedValue&): size_t
+    }
+}
+
+package "geom" {
+    class Vec2D {
+        + x: double
+        + y: double
+        + Vec2D(x: double, y: double)
+        + operator*=(scale: double): Vec2D&
+        + operator<=>(const Vec2D&): auto
+    }
+    
+    class Point2D {
+        + x: double
+        + y: double
+        + Point2D(x: double, y: double)
+        + operator+=(v: Vec2D): Point2D&
+        + operator<=>(const Point2D&): auto
+    }
+    
+    class Rectangle {
+        + position: Point2D
+        + size: Size
+    }
+    
+    class Size {
+        + width: Dimension
+        + height: Dimension
+    }
+    
+    class Offset {
+        + dx: Dimension
+        + dy: Dimension
+    }
+    
+    enum Direction {
+        NORTH
+        SOUTH
+        WEST
+        EAST
+    }
+}
+
+note right of Tagged
+  **Type-Safe ID Pattern**
+  
+  Предотвращает
+  случайную подмену
+  значений разных типов
+  
+  Пример:
+  PlayerId != DogId
+  даже если оба size_t
+end note
+
+note right of geom
+  **Geometry Types**
+  
+  Базовые типы для
+  координат и векторов
+  в игровом мире
+end note
+
+' ============================================================================
+' МОДЕЛЬ - ИГРОВОЙ МИР (MODEL LAYER)
+' ============================================================================
+
+package "model" {
+    
+    ' --- Геймдизайн и типы ---
+    class Coord <<type alias>>
+    class Dimension <<type alias>>
+    
+    ' --- Карта и её компоненты ---
+    class Map {
+        + Id: Tagged<string, Map>
+        + name_: string
+        + roads_: deque<Road>
+        + buildings_: vector<Building>
+        + offices_: vector<Office>
+        + dog_speed_: double
+        + bag_capacity_: size_t
+        + loot_types_count_: size_t
+        + loot_type_values_: vector<int>
+        + GetId(): Id
+        + GetName(): string
+        + GetRoads(): const deque<Road>&
+        + GetBuildings(): const vector<Building>&
+        + GetOffices(): const vector<Office>&
+        + AddRoad(road: Road)
+        + AddBuilding(building: Building)
+        + AddOffice(office: Office)
+        + SetDogSpeed(speed: double)
+        + GetDogSpeed(): double
+        + SetBagCapacity(capacity: size_t)
+        + GetBagCapacity(): size_t
+        + SetLootTypesCount(count: size_t)
+        + GetLootTypesCount(): size_t
+        + SetLootTypeValue(type: size_t, value: int)
+        + GetLootTypeValue(type: size_t): int
+    }
+    
+    class Road {
+        + HORIZONTAL: HorizontalTag
+        + VERTICAL: VerticalTag
+        + start_: Point2D
+        + end_: Point2D
+        + IsHorizontal(): bool
+        + IsVertical(): bool
+        + GetStart(): Point2D
+        + GetEnd(): Point2D
+    }
+    
+    class Building {
+        + bounds_: Rectangle
+        + GetBounds(): const Rectangle&
+    }
+    
+    class Office {
+        + Id: Tagged<string, Office>
+        + id_: Id
+        + position_: Point2D
+        + offset_: Offset
+        + GetId(): Id
+        + GetPosition(): Point2D
+        + GetOffset(): Offset
+    }
+    
+    ' --- Игровые сессии ---
+    class Game {
+        + sessions_: unordered_map<Id, shared_ptr<GameSession>>
+        + FindOrCreateSession(map_id: Map::Id): shared_ptr<GameSession>
+        + GetSessions(): const unordered_map<Id, shared_ptr<GameSession>>&
+        + AddMap(map: Map)
+    }
+    
+    class GameSession {
+        + Id: Tagged<string, GameSession>
+        + map_: shared_ptr<Map>
+        + id_: Id
+        + dogs_: vector<shared_ptr<Dog>>
+        + next_dog_id_: uint32_t
+        + loot_generator_: LootGenerator
+        + lost_objects_: unordered_map<uint32_t, LostObject>
+        + next_loot_id_: uint32_t
+        + mutex_: mutex
+        + CreateDog(name: string, randomize: bool): shared_ptr<Dog>
+        + Update(dt: double)
+        + GetMap(): shared_ptr<Map>
+        + GetId(): const Id&
+        + GetDogs(): const vector<shared_ptr<Dog>>&
+        + GetLostObjects(): const unordered_map<uint32_t, LostObject>&
+        + SetNextDogId(id: uint32_t)
+        + SetNextLootId(id: uint32_t)
+        + GetNextDogId(): uint32_t
+        + GetNextLootId(): uint32_t
+        + RestoreDogs(dogs: vector<Dog>, next_id: uint32_t)
+        + RestoreLostObjects(objects: unordered_map<uint32_t, LostObject>, next_id: uint32_t)
+    }
+    
+    ' --- Игровые сущности ---
+    class Dog {
+        + Id: Tagged<size_t, Dog>
+        + BagItem: class
+        + id_: Id
+        + name_: string
+        + direction_: Direction
+        + position_: Point2D
+        + speed_: Vec2D
+        + bag_: vector<BagItem>
+        + bag_capacity_: size_t
+        + score_: int
+        + GetId(): Id
+        + GetName(): string
+        + GetDirection(): Direction
+        + SetDirection(dir: Direction)
+        + GetPosition(): Point2D
+        + SetPosition(pos: Point2D)
+        + GetSpeed(): Vec2D
+        + SetSpeed(speed: Vec2D)
+        + GetBag(): const vector<BagItem>&
+        + GetBagCapacity(): size_t
+        + IsBagFull(): bool
+        + AddToBag(item_id: uint32_t, type: size_t): bool
+        + ClearBag(): vector<BagItem>
+        + AddScore(points: int)
+        + GetScore(): int
+    }
+    
+    class Dog::BagItem {
+        - id: uint32_t
+        - type: size_t
+        + BagItem()
+        + BagItem(item_id: uint32_t, item_type: size_t)
+    }
+    
+    class LostObject {
+        + Id: Tagged<uint32_t, LostObject>
+        - id: Id
+        - type: size_t
+        - pos: pair<double, double>
+        - collected: bool
+    }
+    
+    ' --- Генератор луута ---
+    class LootGenerator {
+        + RandomGenerator: type
+        + TimeInterval: type
+        - base_interval_: TimeInterval
+        - probability_: double
+        - time_without_loot_: TimeInterval
+        - random_generator_: RandomGenerator
+        + LootGenerator(base_interval: TimeInterval, probability: double)
+        + SetConfig(interval: TimeInterval, probability: double)
+        + Generate(delta: TimeInterval, loot_count: unsigned, looter_count: unsigned): unsigned
+    }
+    
+    ' --- Детектор коллизий ---
+    class CollisionDetector {
+        + IsColliding(dog: Dog, delta: double): bool
+        + HandleCollisions(session: GameSession)
+        + CheckRoadCollision(dog: Dog, road: Road): bool
+        + CheckBuildingCollision(dog: Dog, building: Building): bool
+    }
+}
+
+note right of Map
+  **Карта уровня**
+  
+  Содержит геометрию
+  уровня: дороги, здания,
+  офисы spawn points
+end note
+
+note right of GameSession
+  **Игровая сессия**
+  
+  Управление состоянием
+  одной карты: собаки,
+  луут, коллизии
+end note
+
+note right of Dog
+  **Персонаж игрока**
+  
+  Собака с рюкзаком,
+  перемещается по карте,
+  собирает предметы
+end note
+
+note right of LootGenerator
+  **Генератор предметов**
+  
+  Вероятностная генерация
+  с заданным интервалом
+end note
+
+' ============================================================================
+' ПРИЛОЖЕНИЕ - ЛОГИКА ИГРЫ (APP LAYER)
+' ============================================================================
+
+package "app" {
+    
+    ' --- Токены и сессии ---
+    class Token <<type alias>> {
+        + value_: string
+    }
+    
+    class Player {
+        + Id: Tagged<size_t, Player>
+        - id_: Id
+        - name_: string
+        - session_: weak_ptr<GameSession>
+        - dog_: weak_ptr<Dog>
+        + GetId(): Id
+        + GetName(): string
+        + GetSession(): shared_ptr<GameSession>
+        + GetDog(): shared_ptr<Dog>
+        + GetSessionWeak(): weak_ptr<GameSession>
+        + GetDogWeak(): weak_ptr<Dog>
+        + SetGameSession(session: shared_ptr<GameSession>)
+        + SetDog(dog: shared_ptr<Dog>)
+    }
+    
+    class PlayerTokens {
+        - tokens_: unordered_map<Token, shared_ptr<Player>>
+        + RegisterPlayer(token: Token, player: shared_ptr<Player>)
+        + FindPlayer(token: Token): shared_ptr<Player>
+        + GetAllTokens(): const unordered_map<Token, shared_ptr<Player>>&
+        + RemovePlayer(token: Token)
+    }
+    
+    class ExtraData {
+        - loot_types_: unordered_map<string, vector<json::value>>
+        + SaveLootTypes(map_id: string, loot_types: vector<json::value>)
+        + GetLootTypes(map_id: string): vector<json::value>
+    }
+    
+    class Application {
+        - game_: Game
+        - extra_data_: ExtraData
+        - tokens_: PlayerTokens
+        - players_: vector<shared_ptr<Player>>
+        - next_player_id_: size_t
+        - is_tick_auto_: bool
+        - randomize_spawn_: bool
+        - mutex_: mutex
+        - listener_: unique_ptr<StateListener>
+        + Application(game: Game, extra_data: ExtraData, tick_period: optional<uint64_t>, randomize_spawn: bool)
+        + JoinGame(name: string, map_id: Map::Id): pair<Token, Player::Id>
+        + GetPlayersInSession(token: Token): vector<shared_ptr<Player>>
+        + FindPlayerByToken(token: Token): shared_ptr<Player>
+        + MovePlayer(token: Token, cmd: string_view)
+        + Tick(delta: milliseconds)
+        + GetGame(): const Game&
+        + SetApplicationListener(listener: unique_ptr<StateListener>)
+        + NotifyTick(delta: milliseconds)
+        + NotifyShutdown()
+        + RestorePlayerToken(token: Token, player: shared_ptr<Player>)
+        + ClearAllPlayers()
+        + GetPlayerTokens(): PlayerTokens
+        + GetPlayers(): const vector<shared_ptr<Player>>&
+        + GetNextPlayerId(): size_t
+        + SetNextPlayerId(id: size_t)
+        + SetDefaultDogSpeed(speed: double)
+        + SetLootGeneratorConfig(config: pair<double, double>)
+    }
+}
+
+note right of Application
+  **Контроллер приложения**
+  
+  Единая точка входа для
+  HTTP API, управление игроками,
+  игровым циклом
+end note
+
+note right of PlayerTokens
+  **Система аутентификации**
+  
+  Map token -> player для
+  быстрой аутентификации
+end note
+
+' ============================================================================
+' ИНФРАСТРУКТУРА - СЕРВЕРОЕ И СЕРИАЛИЗАЦИЯ (INFRA LAYER)
+' ============================================================================
+
+package "infra" {
+    
+    ' --- Интерфейс слушателя ---
+    class StateListener <<interface>> {
+        <<abstract>>
+        # StateListener()
+        + OnTick(delta: milliseconds): void {abstract}
+        + OnShutdown(): void {abstract}
+    }
+    
+    ' --- Сериализация состояния ---
+    class SerializingListener {
+        - state_file_path_: filesystem::path
+        - save_period_: milliseconds
+        - app_: Application*
+        - time_since_save_: milliseconds
+        + SerializingListener(path: filesystem::path, period: milliseconds, app: Application*)
+        + LoadState(): bool
+        + SaveState(): void
+        + OnTick(delta: milliseconds): void
+        + OnShutdown(): void
+        - DoSaveState(): void
+        - CaptureState(): ApplicationState
+        - RestoreState(state: ApplicationState): void
+    }
+    
+    class ApplicationState {
+        + sessions: vector<SessionData>
+        + players: vector<PlayerData>
+        + next_player_id: size_t
+    }
+    
+    class ApplicationState::SessionData {
+        - map_id: string
+        - dogs: vector<Dog>
+        - lost_objects: unordered_map<uint32_t, LostObject>
+        - next_dog_id: uint32_t
+        - next_loot_id: uint32_t
+    }
+    
+    class ApplicationState::PlayerData {
+        - token: string
+        - player_id: size_t
+        - player_name: string
+        - map_id: string
+        - dog_id: size_t
+    }
+    
+    ' --- HTTP сервер ---
+    class HttpServer {
+        <<namespace>>
+        + ServeHttp(ioc: io_context, endpoint: tcp_endpoint, handler: RequestHandler)
+        + ErrorMessage(ec: beast::error_code, what: string_view)
+    }
+    
+    class SessionBase {
+        - stream_: beast::tcp_stream
+        - buffer_: beast::flat_buffer
+        - request_: HttpRequest
+        - req_recieve_time_: ptime
+        + SessionBase(socket: tcp::socket)
+        + Run(): void
+        + GetRemoteIp(): string
+        + Write(response: http_response): void
+        + SetReqRecieveTime(time: ptime)
+        + GetDurReceivedRequest(time: ptime): int32_t
+        - Read(): void
+        - OnRead(ec: beast::error_code, bytes_read: size_t)
+        - OnWrite(close: bool, ec: beast::error_code, bytes_written: size_t)
+        - Close(): void
+        # HandleRequest(request: HttpRequest): void {abstract}
+        # GetSharedThis(): shared_ptr<SessionBase> {abstract}
+    }
+    
+    class Session<RequestHandler> {
+        - request_handler_: RequestHandler
+        + Session(socket: tcp::socket, handler: RequestHandler)
+        + HandleRequest(request: HttpRequest): void
+        + GetSharedThis(): shared_ptr<SessionBase>
+    }
+    
+    class Listener<RequestHandler> {
+        - ioc_: io_context
+        - acceptor_: tcp::acceptor
+        - request_handler_: RequestHandler
+        + Listener(ioc: io_context, endpoint: tcp_endpoint, handler: RequestHandler)
+        + Run(): void
+        - DoAccept(): void
+        - OnAccept(ec: sys::error_code, socket: tcp::socket)
+        - AsyncRunSession(socket: tcp::socket)
+    }
+    
+    ' --- JSON загрузчик ---
+    class JsonLoader {
+        <<namespace>>
+        + LoadGame(path: filesystem::path): ProjectConfig
+    }
+    
+    class ProjectConfig {
+        + game: Game
+        + extra_data: ExtraData
+    }
+}
+
+note right of StateListener
+  **Observer Pattern**
+  
+  Интерфейс для
+  расширения функционала
+  без изменения ядра
+end note
+
+note right of SerializingListener
+  **State Persistence**
+  
+  Автосохранение через
+  фиксированные интервалы
+  и при завершении
+end note
+
+note right of Session
+  **HTTP Session**
+  
+  Асинхронная обработка
+  запросов с try-catch
+  для стабильности
+end note
+
+' ============================================================================
+' API - HTTP ОБРАБОТЧИКИ (API LAYER)
+' ============================================================================
+
+package "api" {
+    
+    class ApiHandler {
+        - application_: Application&
+        + ApiHandler(application: Application&)
+        + operator()(req: http_request, send: function): void
+        - HandleJoin(req, send)
+        - HandleMove(req, send)
+        - HandleStatus(req, send)
+        - HandleDogs(req, send)
+    }
+    
+    class Endpoints {
+        <<namespace>>
+        + JOIN_ENDPOINT: string_view
+        + MOVE_ENDPOINT: string_view
+        + STATUS_ENDPOINT: string_view
+        + DOGS_ENDPOINT: string_view
+    }
+    
+    class JsonSerialization {
+        <<namespace>>
+        + tag_invoke(value_from, jv, Dog)
+        + tag_invoke(value_from, jv, Player)
+        + tag_invoke(value_from, jv, LostObject)
+        + tag_invoke(value_from, jv, BagItem)
+        + tag_invoke(value_from, jv, Map)
+        + tag_invoke(value_from, jv, Road)
+        + tag_invoke(value_from, jv, Building)
+        + tag_invoke(value_from, jv, Office)
+        + tag_invoke(value_to<Road>, jv): Road
+        + tag_invoke(value_to<Building>, jv): Building
+        + tag_invoke(value_to<Office>, jv): Office
+        + tag_invoke(value_to<Map>, jv): Map
+    }
+}
+
+note right of ApiHandler
+  **REST API Handler**
+  
+  Обработчик /api/*
+  маршрутов с JSON
+  сериализацией
+end note
+
+' ============================================================================
+' REQUEST HANDLER - HTTP ROUTING
+' ============================================================================
+
+package "http_handler" {
+    
+    class RequestHandler {
+        - application_: Application&
+        - static_content_path_: filesystem::path
+        - api_handler_: ApiHandler
+        + RequestHandler(application: Application&, static_path: filesystem::path)
+        + operator()(req: http_request, send: function): void
+        - MakeErrorResponse(status, body, version, content_type): http_response
+        - HandleStatic(req, send): void
+    }
+    
+    namespace static_utils {
+        + GetMimeType(path: path): string_view
+        + DecodeUrl(url: string_view): string
+        + IsSubPath(path: path, base: path): bool
+    }
+}
+
+note right of RequestHandler
+  **Router**
+  
+  Делегирует /api/* -> ApiHandler
+  Остальные -> статические файлы
+end note
+
+' ============================================================================
+' LOGGER - СИСТЕМА ЛОГИРОВАНИЯ
+' ============================================================================
+
+package "logger" {
+    
+    class Logger {
+        <<namespace>>
+        + InitLogger()
+        + LogInfo(msg: string_view)
+        + LogInfo<T>(msg: string_view, data: T)
+        + LogError(msg: string_view)
+        + LogError<T>(msg: string_view, data: T)
+        + LogWarning(msg: string_view)
+        + CreateLogMessage<T>(msg: string_view, data: string): string
+    }
+    
+    class RequestLog {
+        - ip: string
+        - method: string
+        - target: string
+        - version: unsigned
+        + RequestLog(ip: string, req: http_request)
+    }
+    
+    class ResponseLog<Body, Fields> {
+        - ip: string
+        - duration_ms: int32_t
+        - status: http_status
+        + ResponseLog(ip: string, duration: int32_t, res: http_response)
+    }
+    
+    class ServerAddrPortLog {
+        - address: string
+        - port: uint16_t
+        + ServerAddrPortLog(addr: string, port: uint16_t)
+    }
+    
+    class ExceptionLog {
+        - code: int
+        - text: string
+        - where: string
+        + ExceptionLog(code: int, text: string, where: string)
+    }
+    
+    class ExitCodeLog {
+        - code: int
+        + ExitCodeLog(code: int)
+    }
+}
+
+note right of Logger
+  **Structured Logging**
+  
+  Типобезопасное логирование
+  с контекстом через
+  шаблоны
+end note
+
+' ============================================================================
+' OTHER - ВСПОМОГАТЕЛЬНЫЕ КЛАССЫ
+' ============================================================================
+
+package "other" {
+    
+    class sdk {
+        <<Windows SDK>>
+    }
+    
+    class tagged {
+        <<contains Tagged template>>
+    }
+}
+
+' ============================================================================
+' MAIN - ENTRY POINT
+' ============================================================================
+
+package "main" {
+    
+    class Args {
+        - tick_period: optional<uint64_t>
+        - save_state_period: optional<uint64_t>
+        - state_file: string
+        - config_file: string
+        - www_root: string
+        - randomize_spawn_points: bool
+    }
+    
+    class Program {
+        + main(argc: int, argv: char**): int
+        + ParseCommandLine(argc: int, argv: char**): optional<Args>
+        + StartAutoTick(strand: strand, period: milliseconds, app: Application)
+    }
+}
+
+' ============================================================================
+' ОТНОШЕНИЯ И СВЯЗИ
+' ============================================================================
+
+' --- Main relationships ---
+Program --> Application : creates & configures
+Program --> JsonLoader : loads config
+Program --> SerializingListener : creates (if state file)
+Program --> RequestHandler : passes to HTTP server
+Program --> Logger : initializes
+Program --> Listener : starts HTTP server
+
+' --- Application relationships ---
+Application o-- Game : contains
+Application o-- PlayerTokens : contains
+Application o-- ExtraData : contains
+Application --> Player : manages
+Application --> StateListener : notifies
+Application --> Logger : logs
+
+' --- Player relationships ---
+Player --> GameSession : belongs to (weak)
+Player --> Dog : controls (weak)
+PlayerTokens --> Player : maps token ->
+
+' --- Game relationships ---
+Game o-- GameSession : aggregates
+Game --> Map : contains
+
+' --- GameSession relationships ---
+GameSession o-- Map : owns
+GameSession *-- Dog : owns many
+GameSession o-- LootGenerator : uses
+GameSession *-- LostObject : owns many
+GameSession --> CollisionDetector : uses
+GameSession --> Logger : logs
+
+' --- Map relationships ---
+Map *-- Road : contains
+Map *-- Building : contains
+Map *-- Office : contains
+Map --> geom : uses types
+
+' --- Dog relationships ---
+Dog *-- Dog::BagItem : contains
+Dog --> Direction : uses
+Dog --> Point2D : position
+Dog --> Vec2D : speed
+
+' --- SerializingListener relationships ---
+StateListener <|-- SerializingListener : extends
+SerializingListener --> ApplicationState : captures
+ApplicationState o-- SessionData : contains
+ApplicationState o-- PlayerData : contains
+SerializingListener --> Logger : logs errors
+
+' --- HTTP relationships ---
+RequestHandler o-- ApiHandler : delegates API
+RequestHandler o-- Application : uses
+Listener <creates> Session
+Session <extends> SessionBase
+Session --> RequestHandler : uses
+SessionBase --> Logger : logs
+
+' --- API relationships ---
+ApiHandler o-- Application : uses
+ApiHandler --> JsonSerialization : serializes
+ApiHandler --> Endpoints : routes
+JsonSerialization --> Dog : serializes
+JsonSerialization --> Map : serializes
+JsonSerialization --> Player : serializes
+
+' --- JSON Loader relationships ---
+JsonLoader --> ProjectConfig : creates
+JsonLoader --> JsonSerialization : deserializes
+JsonLoader --> Logger : logs errors
+
+' --- Util relationships ---
+Tagged --> Player::Id : used by
+Tagged --> Dog::Id : used by
+Tagged --> GameSession::Id : used by
+Tagged --> Map::Id : used by
+Tagged --> Office::Id : used by
+Tagged --> LostObject::Id : used by
+Tagged --> PlayerTokens : used by
+TaggedHasher --> Tagged : hashes
+
+' --- Logger relationships ---
+Logger --> RequestLog : uses
+Logger --> ResponseLog : uses
+Logger --> ServerAddrPortLog : uses
+Logger --> ExceptionLog : uses
+Logger --> ExitCodeLog : uses
+
+' --- Dependencies ---
+SessionBase --> boost::asio : uses
+SessionBase --> boost::beast : uses
+SerializingListener --> boost::serialization : uses
+JsonLoader --> boost::json : uses
+Program --> boost::program_options : parses args
+
+' ============================================================================
+' КОМПОЗИЦИЯ И АГРЕГАЦИЯ (ДЕТАЛИЗАЦИЯ)
+' ============================================================================
+
+' Composition (filled diamond - strong ownership)
+Map *-- "0..*" Road : roads
+Map *-- "0..*" Building : buildings
+Map *-- "0..*" Office : offices
+GameSession *-- "0..*" Dog : dogs
+GameSession *-- "0..*" LostObject : lost_objects
+Dog *-- "0..*" BagItem : bag
+ApplicationState *-- "0..*" SessionData : sessions
+ApplicationState *-- "0..*" PlayerData : players
+
+' Aggregation (empty diamond - weak ownership)
+Game o-- "0..*" GameSession : sessions
+Application o-- "1" Game : game
+Application o-- "1" PlayerTokens : tokens
+Application o-- "1" ExtraData : extra_data
+GameSession o-- "1" LootGenerator : generator
+SerializingListener o-- "1" Application : app
+
+' Association (line - usage relationship)
+Player -- GameSession : session
+Player -- Dog : dog
+RequestHandler -- Application : application
+ApiHandler -- Application : application
+JsonLoader -- Game : game
+JsonLoader -- ExtraData : extra_data
+
+' ============================================================================
+' НАСЛЕДОВАНИЕ
+' ============================================================================
+
+StateListener <|-- SerializingListener
+SessionBase <|-- Session<RequestHandler>
+
+' ============================================================================
+' УЗКИЕ МЕСТА И ПОТОКОБЕЗОПАСНОСТЬ
+' ============================================================================
+
+note right of GameSession
+  **Thread Safety**
+  
+  mutex_ защищает:
+  - dogs_
+  - lost_objects_
+end note
+
+note right of Application
+  **Thread Safety**
+  
+  mutex_ защищает:
+  - players_
+  - tokens_
+end note
+
+note right of Session
+  **Exception Safety**
+  
+  try-catch блок
+  предотвращает
+  падение сервера
+end note
+
+note bottom of SerializingListener
+  **Atomic Save**
+  
+  1. Пишем в .tmp файл
+  2. Атомарно переименовываем
+  3. Защита от corruption
+end note
+
+' ============================================================================
+' ЦВЕТА И СТИЛИ
+' ============================================================================
+
+classDef model fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+classDef app fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+classDef infra fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+classDef api fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+classDef logger fill:#ffebee,stroke:#c62828,stroke-width:2px
+classDef util fill:#e0f2f1,stroke:#00796b,stroke-width:2px
+classDef main fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+classDef interface fill:#fafafa,stroke:#424242,stroke-width:2px,stroke-dasharray: 5 5
+
+class Map,Road,Building,Office,Game,GameSession,Dog,LostObject,LootGenerator,CollisionDetector model
+class Application,Player,PlayerTokens,ExtraData,Token app
+class StateListener,SerializingListener,ApplicationState,SessionData,PlayerData,HttpServer,SessionBase,Session,Listener,RequestHandler,JsonLoader,ProjectConfig infra
+class ApiHandler,Endpoints,JsonSerialization api
+class Logger,RequestLog,ResponseLog,ServerAddrPortLog,ExceptionLog,ExitCodeLog logger
+class Tagged,TaggedHasher,Vec2D,Point2D,Rectangle,Size,Offset,Direction,Coord,Dimension util
+class Args,Program main
+class StateListener interface
+
+@enduml
