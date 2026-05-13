@@ -5,7 +5,7 @@
 #include <sstream>
 #include <iomanip>
 
-namespace JsonUtils {
+namespace json_utils {
 
 inline std::string EscapeJsonString(const std::string& s) {
     std::ostringstream o;
@@ -40,4 +40,4 @@ inline std::string FormatNullableString(const std::optional<std::string>& value)
     return "\"" + EscapeJsonString(*value) + "\"";
 }
 
-} // namespace JsonUtils
+} // namespace json_   utils

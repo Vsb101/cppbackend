@@ -5,7 +5,7 @@
 
 class JsonParser {
 public:
-    static std::optional<std::string> ExtractStringValue(const std::string& json, const std::string& key);
-    static std::optional<int> ExtractIntValue(const std::string& json, const std::string& key);
-    static bool ExtractNullValue(const std::string& json, const std::string& key);
+    static std::optional<std::string> ExtractStringValue(std::string_view json, std::string_view key);
+    static std::optional<int> ExtractIntValue(std::string_view json, std::string_view key);
+    static bool ExtractNullValue(std::string_view json, std::string_view key);
 };
