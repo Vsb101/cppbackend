@@ -13,10 +13,16 @@ UseCasesImpl::UseCasesImpl(
 }
 
 void UseCasesImpl::AddAuthor(const std::string& name) {
+    if (name.empty()) {
+        throw std::invalid_argument("Author name cannot be empty");
+    }
     authors_->Save({AuthorId::New(), name});
 }
 
 void UseCasesImpl::AddBook(const domain::Book& book) {
+    if (book.GetTitle().empty()) {
+        throw std::invalid_argument("Book title cannot be empty");
+    }
     books_->Save(book);
 }
 
