@@ -157,13 +157,7 @@ bool UseCasesImpl::DeleteAuthor(const std::string& author_input) {
         author_id = author_opt->GetId();
     }
 
-    // Удаляем все книги автора (и их теги автоматически через CASCADE)
-    auto author_books = authors_->GetAuthorBooks(author_id);
-    for (const auto& book : author_books) {
-        books_->Delete(book.GetId());
-    }
-
-    // Удаляем автора
+    // Удаляем автора - книги и теги удалятся автоматически через CASCADE
     authors_->Delete(author_id);
     return true;
 }

@@ -2,6 +2,7 @@
 #include <iosfwd>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../domain/author.h"
@@ -16,13 +17,6 @@ class UseCases;
 
 namespace ui {
 namespace detail {
-
-struct AddBookParams {
-    std::string title;
-    std::string author_id;
-    int publication_year = 0;
-    std::vector<std::string> tags;
-};
 
 struct AuthorInfo {
     std::string id;
@@ -53,12 +47,8 @@ private:
     bool EditAuthor(std::istream& cmd_input) const;
     bool EditBook(std::istream& cmd_input) const;
 
-    std::optional<detail::AddBookParams> GetBookParams(std::istream& cmd_input) const;
-    std::optional<std::string> SelectAuthor(const std::string& prompt) const;
-    std::optional<std::string> SelectBook(const std::string& prompt, const std::vector<detail::BookInfo>& books) const;
     std::vector<detail::AuthorInfo> GetAuthors() const;
     std::vector<detail::BookInfo> GetBooks() const;
-    std::vector<detail::BookInfo> GetAuthorBooks(const std::string& author_id) const;
 
     menu::Menu& menu_;
     app::UseCases& use_cases_;
