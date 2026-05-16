@@ -1,0 +1,9 @@
+[requires]
+libpqxx/7.9.2
+boost/1.81.0
+catch2/3.5.4
+gtest/1.12.1
+
+[generators]
+cmake_paths
+cmake_find_package
