@@ -1,9 +1,22 @@
 #include "menu.h"
 
+#include <format>
 #include <iomanip>
+#include <ios>
 #include <sstream>
 
 namespace menu {
+
+struct OutputFlagsGuard {
+    std::ostream& out;
+    std::ios_base::fmtflags flags;
+    char fill;
+    
+    ~OutputFlagsGuard() {
+        out.flags(flags);
+        out.fill(fill);
+    }
+};
 
 Menu::Menu(std::istream& input, std::ostream& output)
     : input_{input}
@@ -12,12 +25,16 @@ Menu::Menu(std::istream& input, std::ostream& output)
 
 void Menu::AddAction(std::string action_name, std::string args, std::string description,
                      Handler handler) {
-    if (!actions_
-             .try_emplace(std::move(action_name), std::move(handler), std::move(args),
-                          std::move(description))
-             .second) {
+    const bool inserted = actions_.try_emplace(
+        action_name, std::move(handler), std::move(args), std::move(description)
+    ).second;
+    
+    if (!inserted) {
         throw std::invalid_argument("A command has been added already");
     }
+    
+    actions_width_ = std::max(actions_width_, action_name.length());
+    args_width_ = std::max(args_width_, args.length());
 }
 
 void Menu::Run() {
@@ -34,32 +51,16 @@ void Menu::ShowInstructions() const {
     if (actions_.empty()) {
         return;
     }
-    size_t actions_width = 0;
-    size_t args_width = 0;
+
+    OutputFlagsGuard guard{output_, output_.flags(), output_.fill()};
+    output_ << std::left << std::setfill(' ');
+    
     for (const auto& [action_name, info] : actions_) {
-        actions_width = std::max(actions_width, action_name.length());
-        args_width = std::max(args_width, info.args.length());
+        output_ << std::format("{:<{}} {:<{}} {}\n",
+            action_name, actions_width_ + 1,
+            info.args, args_width_ + 1,
+            info.description);
     }
-
-    const auto old_flags = output_.flags();
-    const auto old_fill = output_.fill();
-    auto restore_flags = [this, old_fill, old_flags] {
-        output_.fill(old_fill);
-        output_.setf(old_flags);
-    };
-
-    try {
-        output_ << std::left << std::setfill(' ');
-        for (const auto& [action_name, info] : actions_) {
-            output_ << std::setw(actions_width + 1) << action_name;
-            output_ << std::setw(args_width + 1) << info.args;
-            output_ << info.description << std::endl;
-        }
-    } catch (...) {
-        restore_flags();
-        throw;
-    }
-    restore_flags();
 }
 
 bool Menu::ParseCommand(std::istream& input) {
@@ -76,12 +77,14 @@ bool Menu::ParseCommand(std::istream& input) {
                 output_ << "Command '"sv << cmd << "' has not been found."sv << std::endl;
             }
         } else {
-            output_ << "Invalid command"sv << std::endl;
+            // Если поток пустой (например, пустая строка), просто ничего не делаем
+            // output_ << "Invalid command"sv << std::endl;
         }
     } catch (const std::exception& e) {
         output_ << e.what() << std::endl;
     }
     return true;
 }
+
 
 }  // namespace menu

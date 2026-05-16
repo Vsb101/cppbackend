@@ -77,6 +77,9 @@ private:
 
 class AuthorRepository {
 public:
+    // Деструктор обязательно должен быть virtual и public для полиморфизма
+    virtual ~AuthorRepository() = default; 
+
     virtual void Save(const Author& author) = 0;
     virtual std::vector<Author> GetAll() const = 0;
     virtual std::optional<Author> LoadById(const AuthorId& id) const = 0;
@@ -84,13 +87,13 @@ public:
     virtual void Delete(const AuthorId& id) = 0;
     virtual void Update(const Author& author) = 0;
     virtual std::vector<Book> GetAuthorBooks(const AuthorId& author_id) const = 0;
-
-protected:
-    ~AuthorRepository() = default;
 };
 
 class BookRepository {
 public:
+    // Деструктор обязательно должен быть virtual и public для полиморфизма
+    virtual ~BookRepository() = default;
+
     virtual void Save(const Book& book) = 0;
     virtual std::vector<Book> GetAll() const = 0;
     virtual std::vector<Book> GetByAuthorId(const AuthorId& author_id) const = 0;
@@ -101,9 +104,6 @@ public:
     virtual std::vector<std::string> GetBookTags(const BookId& book_id) const = 0;
     virtual void SetBookTags(const BookId& book_id, const std::vector<std::string>& tags) = 0;
     virtual void DeleteBookTags(const BookId& book_id) = 0;
-
-protected:
-    ~BookRepository() = default;
 };
 
 }  // namespace domain
