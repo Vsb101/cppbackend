@@ -107,9 +107,14 @@ bool View::AddAuthor(std::istream& cmd_input) const {
 bool View::AddBook(std::istream& cmd_input) const {
     try {
         int publication_year;
-        cmd_input >> publication_year;
+        if (!(cmd_input >> publication_year)) {
+            output_ << "Failed to add book"sv << std::endl;
+            return true;
+        }
+        
+        // убирает остаточные символы '\n' из буфера перед чтением названия
         std::string title;
-        std::getline(cmd_input, title);
+        std::getline(cmd_input >> std::ws, title);
         boost::algorithm::trim(title);
 
         if (title.empty()) {
@@ -117,12 +122,14 @@ bool View::AddBook(std::istream& cmd_input) const {
             return true;
         }
 
-        output_ << "Enter author name or empty line to select from list:\n" << std::flush;
+        // двоеточие на конце и перевод строки
+        output_ << "Enter author name or empty line to select from list:" << std::endl;
+        
         std::string author_input;
         std::getline(input_, author_input);
         boost::algorithm::trim(author_input);
 
-        std::string final_author_name;
+        std::string final_author_input = author_input;
 
         if (author_input.empty()) {
             auto authors = GetAuthors();
@@ -131,30 +138,26 @@ bool View::AddBook(std::istream& cmd_input) const {
                 return true;
             }
             PrintVector(output_, authors);
-            output_ << "Enter author #" << std::flush;
+            output_ << "Enter author # " << std::flush; // Курсор остается на этой же строке
             
-            std::string choice;
-            std::getline(input_, choice);
-            boost::algorithm::trim(choice);
-            
-            auto idx = ParseIndex(choice);
-            if (!idx || *idx < 0 || *idx >= static_cast<int>(authors.size())) {
+            std::getline(input_, author_input);
+            boost::algorithm::trim(author_input);
+            if (author_input.empty()) {
                 output_ << "Failed to add book."sv << std::endl;
                 return true;
             }
-            // Самое важное: UI сам берет текстовое имя по индексу!
-            final_author_name = authors[*idx].name; 
+            final_author_input = author_input;
         } else {
-            final_author_name = author_input;
-            
             auto authors = GetAuthors();
-            auto it = std::ranges::find_if(authors, [&final_author_name](const auto& a) { 
-                return a.name == final_author_name; 
+            auto it = std::ranges::find_if(authors, [&author_input](const auto& a) { 
+                return a.name == author_input; 
             });
             
-            // Если автора нет в базе, задаем вопрос строго по ТЗ
+            // Если автора нет в базе
             if (it == authors.end()) {
-                output_ << std::format("No author found. Do you want to add {} (y/n)?\n", final_author_name) << std::flush;
+                // Курсор ЖЕСТКО на этой же строке!
+                output_ << "No author found. Do you want to add " << author_input << " (y/n)? " << std::flush;
+                
                 std::string response;
                 std::getline(input_, response);
                 boost::algorithm::trim(response);
@@ -165,12 +168,13 @@ bool View::AddBook(std::istream& cmd_input) const {
             }
         }
 
-        output_ << "Enter tags (comma separated):\n" << std::flush;
+        // Выводим приглашение тегов строго по ТЗ
+        output_ << "Enter tags (comma separated):" << std::endl;
+        
         std::string tags_input;
         std::getline(input_, tags_input);
         
-        // В UseCase уходит гарантированное ИМЯ автора, а не индекс
-        use_cases_.AddBookWithAuthorSelection(title, publication_year, final_author_name, ParseTags(tags_input));
+        use_cases_.AddBookWithAuthorSelection(title, publication_year, final_author_input, ParseTags(tags_input));
 
     } catch (...) {
         output_ << "Failed to add book"sv << std::endl;

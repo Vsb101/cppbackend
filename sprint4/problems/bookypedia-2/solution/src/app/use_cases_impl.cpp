@@ -74,18 +74,37 @@ AddBookResult UseCasesImpl::AddBookWithAuthorSelection(
     AuthorId author_id;
     bool author_added = false;
 
-    // Защита: очистим имя от случайных пробелов по краям
-    std::string clean_author_name = author_input;
-    boost::algorithm::trim(clean_author_name);
+    bool is_number = !author_input.empty();
+    for (char c : author_input) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) {
+            is_number = false;
+            break;
+        }
+    }
 
-    // Больше никаких проверок на число! Работаем строго с именем автора.
-    auto author_opt = authors_->LoadByName(clean_author_name);
-    if (author_opt) {
-        author_id = author_opt->GetId();
+    if (is_number) {
+        auto authors = authors_->GetAll();
+        std::sort(authors.begin(), authors.end(), [](const auto& a, const auto& b) {
+            return a.GetName() < b.GetName();
+        });
+        
+        int author_idx = std::stoi(author_input) - 1;
+        if (author_idx < 0 || author_idx >= static_cast<int>(authors.size())) {
+            throw std::invalid_argument("Invalid author number");
+        }
+        author_id = authors[author_idx].GetId();
     } else {
-        author_id = AuthorId::New();
-        authors_->Save({author_id, clean_author_name});
-        author_added = true;
+        std::string clean_author_name = author_input;
+        boost::algorithm::trim(clean_author_name);
+
+        auto author_opt = authors_->LoadByName(clean_author_name);
+        if (author_opt) {
+            author_id = author_opt->GetId();
+        } else {
+            author_id = AuthorId::New();
+            authors_->Save({author_id, clean_author_name});
+            author_added = true;
+        }
     }
 
     auto normalized_tags = NormalizeTags(raw_tags);
