@@ -74,7 +74,8 @@ bool Menu::ParseCommand(std::istream& input) {
                 output_ << "Command '"sv << cmd << "' has not been found."sv << std::endl;
             }
         } else {
-            output_ << "Invalid command"sv << std::endl;
+           
+            return true; 
         }
     } catch (const std::exception& e) {
         output_ << e.what() << std::endl;

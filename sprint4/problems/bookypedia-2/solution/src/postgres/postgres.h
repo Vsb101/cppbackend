@@ -1,16 +1,31 @@
 #pragma once
 #include <pqxx/connection>
 #include <pqxx/transaction>
+#include <memory>
+#include <optional>
+#include <vector>
+#include <string>
 
 #include "../domain/author.h"
 
 namespace postgres {
 
+// Класс-обёртка для транзакции контекста Unit of Work
+class TransactionContext {
+public:
+    explicit TransactionContext(pqxx::connection& conn) : tx_(conn) {}
+    pqxx::work& GetTx() { return tx_; }
+    void Commit() { tx_.commit(); }
+private:
+    pqxx::work tx_;
+};
+
 class AuthorRepositoryImpl : public domain::AuthorRepository {
 public:
-    explicit AuthorRepositoryImpl(pqxx::connection& connection)
-        : connection_{connection} {
-    }
+    explicit AuthorRepositoryImpl(pqxx::connection& connection) : connection_{connection} {}
+
+    // Позволяет UseCases передать текущую активную транзакцию
+    void SetCurrentTx(pqxx::work* tx) { current_tx_ = tx; }
 
     void Save(const domain::Author& author) override;
     std::vector<domain::Author> GetAll() const override;
@@ -22,13 +37,14 @@ public:
 
 private:
     pqxx::connection& connection_;
+    pqxx::work* current_tx_ = nullptr; // Ссылка на глобальную транзакцию команды
 };
 
 class BookRepositoryImpl : public domain::BookRepository {
 public:
-    explicit BookRepositoryImpl(pqxx::connection& connection)
-        : connection_{connection} {
-    }
+    explicit BookRepositoryImpl(pqxx::connection& connection) : connection_{connection} {}
+
+    void SetCurrentTx(pqxx::work* tx) { current_tx_ = tx; }
 
     void Save(const domain::Book& book) override;
     std::vector<domain::Book> GetAll() const override;
@@ -43,18 +59,32 @@ public:
 
 private:
     pqxx::connection& connection_;
+    pqxx::work* current_tx_ = nullptr;
 };
 
 class Database {
 public:
     explicit Database(pqxx::connection connection);
 
-    AuthorRepositoryImpl& GetAuthors() & {
-        return authors_;
-    }
+    AuthorRepositoryImpl& GetAuthors() & { return authors_; }
+    BookRepositoryImpl& GetBooks() & { return books_; }
 
-    BookRepositoryImpl& GetBooks() & {
-        return books_;
+    // Метод для UseCases, чтобы выполнять команды атомарно
+    template <typename Block>
+    void ExecuteTransaction(Block&& block) {
+        pqxx::work tx{connection_};
+        authors_.SetCurrentTx(&tx);
+        books_.SetCurrentTx(&tx);
+        try {
+            block();
+            tx.commit();
+        } catch (...) {
+            authors_.SetCurrentTx(nullptr);
+            books_.SetCurrentTx(nullptr);
+            throw; // Пробрасываем ошибку дальше для UI слоя
+        }
+        authors_.SetCurrentTx(nullptr);
+        books_.SetCurrentTx(nullptr);
     }
 
 private:

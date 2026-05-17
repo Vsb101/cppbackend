@@ -2,7 +2,7 @@
 
 #include <string>
 #include <vector>
-#include <optional> // <-- Обязательно добавить для std::optional
+#include <optional> //
 #include "../domain/author.h"
 
 namespace app {

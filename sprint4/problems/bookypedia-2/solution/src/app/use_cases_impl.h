@@ -2,15 +2,24 @@
 
 #include "use_cases.h"
 #include "../domain/author.h"
+#include "../postgres/postgres.h"
 #include <memory>
 #include <vector>
 #include <string>
 #include <optional>
+#include <utility>
 
 namespace app {
 
 class UseCasesImpl : public UseCases {
 public:
+    // Конструктор для основного приложения (принимает БД)
+    UseCasesImpl(
+        postgres::Database& db,
+        std::shared_ptr<domain::AuthorRepository> authors,
+        std::shared_ptr<domain::BookRepository> books);
+
+    // Старый конструктор для совместимости с юнит-тестами
     UseCasesImpl(
         std::shared_ptr<domain::AuthorRepository> authors,
         std::shared_ptr<domain::BookRepository> books);
@@ -40,12 +49,20 @@ public:
     std::vector<domain::Book> GetBooksByTitle(const std::string& title) const override;
     std::vector<domain::Book> GetAuthorBooks(const std::string& author_id) const override;
 
-    // Для обратной совместимости
-    void AddBook(const domain::Book& book) {
-        (void)book;
-    }
+    void AddBook(const domain::Book& book) { (void)book; }
 
 private:
+    // Шаблонный хелпер для прозрачной работы с транзакциями (в .h файле)
+    template <typename Block>
+    void ExecuteInTransaction(Block&& block) const {
+        if (db_) {
+            db_->ExecuteTransaction(std::forward<Block>(block));
+        } else {
+            block(); // Если БД нет (в юнит-тестах), просто выполняем код атомарно
+        }
+    }
+
+    postgres::Database* db_ = nullptr; // Изменено на указатель
     std::shared_ptr<domain::AuthorRepository> authors_;
     std::shared_ptr<domain::BookRepository> books_;
 };
