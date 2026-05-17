@@ -2,6 +2,7 @@
 #include "player.h"
 #include <stdexcept>
 #include <algorithm>
+#include <tuple>
 #include "../infra/state_listener.h"
 #include "../infra/retirement_repository.h"
 #include "../logger/logger.h"
@@ -9,6 +10,8 @@
 namespace app {
 
 std::vector<infra::Record> Application::GetRecords(size_t start, size_t max_items) const {
+    // Операции чтения из БД защищаем мьютексом слоя приложения, если репозиторий используется параллельно
+    std::lock_guard lock(mutex_);
     if (retirement_repo_) {
         return retirement_repo_->GetRecords(start, max_items);
     }
@@ -104,10 +107,14 @@ void Application::MovePlayer(const Token& token, std::string_view move_cmd) {
 void Application::Tick(std::chrono::milliseconds delta) {
     double dt_seconds = std::chrono::duration<double>(delta).count();
     
+    // Структуры для сбора данных, которые мы обработаем ПОСЛЕ выхода из-под мьютекса
+    std::vector<std::tuple<std::string, int, double>> records_to_add;
+    
     {
         std::lock_guard lock(mutex_);
         current_game_time_ += dt_seconds;
         
+        // 1. Обновляем физику сессий
         for (const auto& [id, session] : game_.GetSessions()) {
             if (session) {
                 session->Update(dt_seconds, current_game_time_);
@@ -115,59 +122,67 @@ void Application::Tick(std::chrono::milliseconds delta) {
         }
         
         double retirement_time = game_.GetDogRetirementTime();
+        std::vector<std::shared_ptr<Player>> players_to_remove;
         std::vector<Token> tokens_to_remove;
-        std::vector<std::tuple<std::string, int, double>> records_to_add;
         
+        // 2. Выявляем неактивных собак (учитываем также остановку об стену)
         for (auto& player : players_) {
             auto dog = player->GetDog();
             if (!dog) continue;
             
+            if (dog->GetSpeed().vx == 0.0 && dog->GetSpeed().vy == 0.0) {
+                if (!dog->IsInactive()) {
+                    dog->StartInactivity(current_game_time_);
+                }
+            }
+            
             if (dog->IsInactive()) {
                 double inactive_duration = current_game_time_ - dog->GetInactivityStartTime();
-                logger::LogInfo("Dog inactive", dog->GetName() + ", inactive_duration=" + std::to_string(inactive_duration) + ", threshold=" + std::to_string(retirement_time));
                 if (inactive_duration >= retirement_time) {
                     double play_time = current_game_time_ - dog->GetJoinTime();
-                    logger::LogInfo("Retiring dog", dog->GetName() + ", score=" + std::to_string(dog->GetScore()) + ", play_time=" + std::to_string(play_time));
+                    
                     records_to_add.push_back({dog->GetName(), dog->GetScore(), play_time});
-                    auto token_opt = tokens_.FindTokenByPlayer(player);
-                    if (token_opt) {
+                    players_to_remove.push_back(player);
+                    
+                    if (auto token_opt = tokens_.FindTokenByPlayer(player)) {
                         tokens_to_remove.push_back(*token_opt);
                     }
                 }
             }
         }
+
         
-        if (!records_to_add.empty()) {
-            logger::LogInfo("Players retiring", std::to_string(records_to_add.size()));
-        }
-        
-        for (const auto& token : tokens_to_remove) {
-            auto player = tokens_.FindPlayerByToken(token);
-            if (player) {
-                auto dog = player->GetDog();
-                auto session = player->GetSession();
-                if (dog && session) {
-                    session->RemoveDog(dog->GetId());
-                }
-                tokens_.RemovePlayer(token);
-                players_.erase(
-                    std::remove_if(players_.begin(), players_.end(),
-                        [&player](const auto& p) { return p == player; }),
-                    players_.end()
-                );
+        // 3. Безопасное удаление игроков и токенов из памяти игры
+        for (size_t i = 0; i < players_to_remove.size(); ++i) {
+            auto player = players_to_remove[i];
+            auto dog = player->GetDog();
+            auto session = player->GetSession();
+            
+            if (dog && session) {
+                session->RemoveDog(dog->GetId());
             }
+            
+            if (i < tokens_to_remove.size()) {
+                tokens_.RemovePlayer(tokens_to_remove[i]);
+            }
+            
+            players_.erase(
+                std::remove(players_.begin(), players_.end(), player),
+                players_.end()
+            );
         }
-        
+    } // Здесь мьютекс уничтожается и освобождает игровой цикл
+
+    // 4. Сохраняем рекорды в базу данных (ВНЕ МЬЮТЕКСА!)
+    if (!records_to_add.empty() && retirement_repo_) {
         for (const auto& [name, score, play_time] : records_to_add) {
-            if (retirement_repo_) {
-                logger::LogInfo("Adding record to DB", name);
-                try {
-                    retirement_repo_->AddRecord(name, score, play_time);
-                } catch (const std::exception& ex) {
-                    logger::LogError("Failed to add record", name + ": " + std::string(ex.what()));
-                }
-            } else {
-                logger::LogError("Adding record to DB", "retirement_repo_ is null");
+            logger::LogInfo("Adding record to DB synchronously", name);
+            try {
+                // Вызываем синхронный метод. Запрос выполнится до того, 
+                // как метод Tick завершит работу и вернет ответ тестам!
+                retirement_repo_->AddRecord(name, score, play_time);
+            } catch (const std::exception& ex) {
+                logger::LogError("Failed to save record", std::string(ex.what()));
             }
         }
     }

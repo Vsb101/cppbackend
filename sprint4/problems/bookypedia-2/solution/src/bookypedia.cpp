@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "menu/menu.h"
+#include "postgres/postgres.h"
 #include "ui/view.h"
 
 namespace bookypedia {
@@ -10,10 +11,8 @@ namespace bookypedia {
 using namespace std::literals;
 
 Application::Application(const AppConfig& config)
-    : db_{pqxx::connection{config.db_url}}
-    , use_cases_{
-          std::make_shared<postgres::AuthorRepositoryImpl>(db_.GetAuthors()),
-          std::make_shared<postgres::BookRepositoryImpl>(db_.GetBooks())} {
+    : db_{pqxx::connection{config.db_url}} 
+    , use_cases_{db_.GetUowFactory()}{
 }
 
 void Application::Run() {

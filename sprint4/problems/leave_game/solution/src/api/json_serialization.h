@@ -5,6 +5,7 @@
 #include "../model/dog.h"
 #include "../model/game_session.h"
 #include "../app/player.h"
+#include "../infra/record.h" // Подключаем структуру Record
 
 namespace model {
 
@@ -37,3 +38,10 @@ namespace json = boost::json;
 void tag_invoke(json::value_from_tag, json::value& jv, const Player& player);
 
 }  // namespace app
+
+// Новое пространство имен для сериализации рекордов из базы данных
+namespace infra {
+
+void tag_invoke(boost::json::value_from_tag, boost::json::value& jv, const Record& record);
+
+}  // namespace infra

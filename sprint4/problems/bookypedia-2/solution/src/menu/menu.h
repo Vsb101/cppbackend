@@ -3,6 +3,7 @@
 #include <iosfwd>
 #include <map>
 #include <string>
+#include <string_view>
 
 namespace menu {
 
@@ -18,6 +19,7 @@ public:
     void Run();
 
     void ShowInstructions() const;
+    void SendErrorMessage(std::string_view mes) const;
 
 private:
     struct ActionInfo {
@@ -31,8 +33,6 @@ private:
     std::istream& input_;
     std::ostream& output_;
     std::map<std::string, ActionInfo> actions_;
-    mutable size_t actions_width_ = 0;
-    mutable size_t args_width_ = 0;
 };
 
 }  // namespace menu

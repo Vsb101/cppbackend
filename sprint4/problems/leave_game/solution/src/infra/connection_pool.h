@@ -3,7 +3,7 @@
 #include <pqxx/connection>
 #include <mutex>
 #include <condition_variable>
-#include <vector>
+#include <queue> // Заменяем vector на queue для правильной FIFO логики
 #include <memory>
 #include <cassert>
 
@@ -49,34 +49,39 @@ public:
 
     template <typename ConnectionFactory>
     ConnectionPool(size_t capacity, ConnectionFactory&& connection_factory) {
-        pool_.reserve(capacity);
+        // Заполняем очередь созданными соединениями
         for (size_t i = 0; i < capacity; ++i) {
-            pool_.emplace_back(connection_factory());
+            pool_.emplace(connection_factory());
         }
     }
 
     ConnectionWrapper GetConnection() {
         std::unique_lock lock{mutex_};
+        // Ждем, пока в очереди появится хотя бы одно свободное соединение
         cond_var_.wait(lock, [this] {
-            return used_connections_ < pool_.size();
+            return !pool_.empty();
         });
-        return {std::move(pool_[used_connections_++]), *this};
+        
+        // Извлекаем соединение из начала очереди
+        auto conn = std::move(pool_.front());
+        pool_.pop();
+        
+        return {std::move(conn), *this};
     }
 
 private:
     void ReturnConnection(ConnectionPtr&& conn) {
         {
             std::lock_guard lock{mutex_};
-            assert(used_connections_ != 0);
-            pool_[--used_connections_] = std::move(conn);
+            // Возвращаем соединение в конец очереди
+            pool_.push(std::move(conn));
         }
         cond_var_.notify_one();
     }
 
     std::mutex mutex_;
     std::condition_variable cond_var_;
-    std::vector<ConnectionPtr> pool_;
-    size_t used_connections_ = 0;
+    std::queue<ConnectionPtr> pool_; // Очередь гарантирует безопасность перемещения shared_ptr
 };
 
 }  // namespace infra

@@ -12,36 +12,30 @@ find_package(Threads REQUIRED)
 find_package(Boost REQUIRED)
 find_package(libpqxx REQUIRED)
 
-add_library(libbookypedia STATIC
-	src/menu/menu.cpp
-	src/menu/menu.h
-	src/ui/view.cpp
-	src/ui/view.h
-	src/app/use_cases.h
-	src/app/use_cases_impl.cpp
-	src/app/use_cases_impl.h
-	src/domain/author.cpp
-	src/domain/author.h
-	src/domain/author_fwd.h
-	src/util/tagged.h
-	src/util/tagged_uuid.cpp
-	src/util/tagged_uuid.h
-	src/postgres/postgres.cpp
-	src/postgres/postgres.h
+# Автоматический поиск исходных файлов
+file(GLOB_RECURSE LIB_SOURCES
+	CONFIGURE_DEPENDS
+	src/*.cpp
+	src/*.h
 )
+
+add_library(libbookypedia STATIC ${LIB_SOURCES})
 target_link_libraries(libbookypedia PUBLIC Boost::headers Threads::Threads libpqxx::libpqxx)
 
-add_executable(bookypedia
+# Автоматический поиск файлов приложения
+file(GLOB APP_SOURCES
+	src/main.cpp
 	src/bookypedia.cpp
 	src/bookypedia.h
-	src/main.cpp
 )
+
+add_executable(bookypedia ${APP_SOURCES})
 target_link_libraries(bookypedia PRIVATE Boost::headers libbookypedia)
 
-add_executable(tests
-	tests/use_case_tests.cpp
-	tests/tagged_uuid_tests.cpp
-)
+# Автоматический поиск файлов тестов
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS tests/*.cpp)
+
+add_executable(tests ${TEST_SOURCES})
 find_package(Catch2 REQUIRED)
 find_package(GTest REQUIRED)
 target_link_libraries(tests PRIVATE Catch2::Catch2WithMain GTest::gtest libbookypedia)

@@ -1,70 +1,35 @@
 #pragma once
-
+#include "../domain/author_fwd.h"
+#include "../domain/book_fwd.h"
+#include "unit_of_work.h"
 #include "use_cases.h"
-#include "../domain/author.h"
-#include "../postgres/postgres.h"
-#include <memory>
-#include <vector>
-#include <string>
-#include <optional>
-#include <utility>
 
 namespace app {
 
 class UseCasesImpl : public UseCases {
 public:
-    // Конструктор для основного приложения (принимает БД)
-    UseCasesImpl(
-        postgres::Database& db,
-        std::shared_ptr<domain::AuthorRepository> authors,
-        std::shared_ptr<domain::BookRepository> books);
-
-    // Старый конструктор для совместимости с юнит-тестами
-    UseCasesImpl(
-        std::shared_ptr<domain::AuthorRepository> authors,
-        std::shared_ptr<domain::BookRepository> books);
-
-    void AddAuthor(const std::string& name) override;
-    
-    AddBookResult AddBookWithAuthorSelection(
-        const std::string& title,
-        int publication_year,
-        const std::string& author_input,
-        const std::vector<std::string>& tags) override;
-        
-    std::vector<domain::Author> GetAuthors() const override;
-    std::vector<domain::Book> GetBooks() const override;
-    
-    bool DeleteAuthor(const std::string& author_input) override;
-    bool EditAuthor(const std::string& author_input, const std::string& new_name) override;
-    bool DeleteBook(const std::string& book_input) override;
-    
-    bool EditBook(
-        const std::string& book_input,
-        const std::string& new_title,
-        int publication_year,
-        const std::vector<std::string>& tags) override;
-        
-    std::optional<domain::Book> GetBookByTitle(const std::string& title) const override;
-    std::vector<domain::Book> GetBooksByTitle(const std::string& title) const override;
-    std::vector<domain::Book> GetAuthorBooks(const std::string& author_id) const override;
-
-    void AddBook(const domain::Book& book) { (void)book; }
-
-private:
-    // Шаблонный хелпер для прозрачной работы с транзакциями (в .h файле)
-    template <typename Block>
-    void ExecuteInTransaction(Block&& block) const {
-        if (db_) {
-            db_->ExecuteTransaction(std::forward<Block>(block));
-        } else {
-            block(); // Если БД нет (в юнит-тестах), просто выполняем код атомарно
-        }
+    explicit UseCasesImpl(UnitOfWorkFactory* uow_factory)
+        : uow_factory_{uow_factory} 
+        {
     }
 
-    postgres::Database* db_ = nullptr; // Изменено на указатель
-    std::shared_ptr<domain::AuthorRepository> authors_;
-    std::shared_ptr<domain::BookRepository> books_;
+    void AddAuthor(const std::string& name) override;
+    void AddBook(const std::string& autor_id, const std::string& autor_name
+        , const std::string& title, const int publication_year, const std::vector<std::string>& tags) override;
+    void EditAuthor(const info::AuthorInfo& author) const;
+    info::Authors GetAuthors() const override;
+    info::Books GetBooks() const override;
+    info::BookInfo GetBook(const std::string& book_id) const override;
+    void DeleteBook(const std::string& book_id) const override;
+    void EditBook(const info::BookInfo& book) const override;
+    info::Books GetAuthorBooks(const std::string& author_id) const override;
+    void DeleteAuthor(const std::string& author_id) const override;
+    std::optional<info::AuthorInfo> GetAuthorByName(const std::string& author_name) const override;
+    info::Books GetBooksByTitle(const std::string& book_title) const;
+private:
+    // domain::AuthorRepository& authors_;
+    // domain::BookRepository& books_;
+    UnitOfWorkFactory* uow_factory_;
 };
 
 }  // namespace app

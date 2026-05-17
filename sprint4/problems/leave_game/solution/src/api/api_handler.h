@@ -26,7 +26,7 @@ public:
 private:
     app::Application& app_;
 
-    // Основной роутер
+    // Основной роутер запросов
     [[nodiscard]] http::response<http::string_body> HandleRequest(const http::request<http::string_body>& req);
 
     // Обработчики эндпоинтов
@@ -39,11 +39,11 @@ private:
     [[nodiscard]] http::response<http::string_body> HandleTick(std::string_view body_str);
     [[nodiscard]] http::response<http::string_body> HandleGetRecords(std::string_view query);
 
-    // Вспомогательные функции
+    // Вспомогательные функции для генерации ответов
     [[nodiscard]] http::response<http::string_body> MakeJsonResponse(http::status status, json::value body);
     [[nodiscard]] http::response<http::string_body> MakeJsonResponseWithAllow(http::status status, json::value body, std::string_view allow);
     
-    // Для проверки токенов
+    // Вспомогательный парсер для авторизационных токенов
     [[nodiscard]] std::optional<app::Token> TryExtractToken(std::string_view auth_header);
 };
 

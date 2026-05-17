@@ -1,4 +1,5 @@
 #pragma once
+#include <pqxx/pqxx>
 
 #include "app/use_cases_impl.h"
 #include "postgres/postgres.h"

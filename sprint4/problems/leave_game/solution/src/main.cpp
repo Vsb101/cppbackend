@@ -2,6 +2,7 @@
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
+#include <boost/asio/thread_pool.hpp>
 #include <boost/program_options.hpp>
 #include <cstdlib>
 #include <filesystem>
@@ -85,13 +86,18 @@ int main(int argc, const char* argv[]) {
 
         auto config = json_loader::LoadGame(args.config_file);
         
+        // Создаем выделенный пул потоков для работы со сторонней блокирующей СУБД (PostgreSQL).
+        // 4 потоков обычно достаточно для параллельной обработки тяжелых SQL запросов пагинации.
+        constexpr unsigned db_threads_count = 4;
+        auto db_pool = std::make_shared<net::thread_pool>(db_threads_count);
+
         // Используем shared_ptr для безопасного времени жизни
-        // Создаем репозиторий для рекордов, если задана строка подключения к БД
+        // Создаем репозиторий для рекордов, передавая ему и URL, и выделенный пул потоков
         std::shared_ptr<infra::RetirementRepository> retirement_repo;
         const char* db_url = std::getenv("GAME_DB_URL");
         if (db_url) {
             logger::LogInfo("DB URL found, creating repository"sv, std::string(db_url));
-            retirement_repo = std::make_shared<infra::RetirementRepository>(db_url);
+            retirement_repo = std::make_shared<infra::RetirementRepository>(db_url, db_pool);
         } else {
             logger::LogInfo("No DB URL, retirement records disabled"sv);
         }
@@ -175,6 +181,11 @@ int main(int argc, const char* argv[]) {
         // Сохраняем состояние перед завершением
         if (application) {
             application->NotifyShutdown();
+        }
+
+        // Перед выходом дожидаемся завершения всех активных транзакций в СУБД
+        if (db_pool) {
+            db_pool->join();
         }
 
     } catch (const std::exception& ex) {

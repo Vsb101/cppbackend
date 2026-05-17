@@ -5,6 +5,7 @@
 #include <utility>
 #include <chrono>
 #include <mutex>
+#include <functional>
 
 #include "../model/game.h"
 #include "player_tokens.h"
@@ -12,8 +13,6 @@
 #include "extra_data.h"
 #include "../infra/state_listener.h"
 #include "../infra/record.h"
-
-#include <functional>
 
 namespace infra {
 class RetirementRepository;
@@ -66,6 +65,10 @@ public:
     [[nodiscard]] double GetCurrentGameTime() const { return current_game_time_; }
     void SetCurrentGameTime(double time) { current_game_time_ = time; }
     
+    // Настройка времени ухода собак на пенсию (из config.json)
+    void SetDogRetirementTime(double seconds) noexcept { dog_retirement_time_ = seconds; }
+    [[nodiscard]] double GetDogRetirementTime() const noexcept { return dog_retirement_time_; }
+
     // Восстановление состояния
     void RestorePlayerToken(const Token& token, std::shared_ptr<Player> player);
 
@@ -73,6 +76,9 @@ public:
     void ClearAllPlayers();
 
 private:
+    // Внутренний метод для отправки бездействующего игрока в БД и удаления из памяти
+    void RetirePlayer(const std::shared_ptr<Player>& player);
+
     model::Game game_;
     ExtraData extra_data_; 
     PlayerTokens tokens_;
@@ -83,6 +89,7 @@ private:
     bool randomize_spawn_;
     
     double current_game_time_ = 0.0;
+    double dog_retirement_time_ = 60.0; // Время бездействия по умолчанию (1 минута)
     std::shared_ptr<infra::RetirementRepository> retirement_repo_;
     
     mutable std::mutex mutex_; 

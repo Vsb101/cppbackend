@@ -4,6 +4,7 @@
 #include <chrono>
 #include <charconv>
 #include <string>
+#include <algorithm>
 
 namespace http_handler {
 
@@ -70,10 +71,25 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
             json::value{{"code", "invalidMethod"}, {"message", "Only POST is allowed"}}, "POST"sv);
     }
 
-    // 8. Таблица рекордов
+    // 8. Таблица рекордов (с пагинацией и поддержкой HEAD)
     if (target.starts_with(api::Endpoints::GetRecords())) {
         if (method == http::verb::get || method == http::verb::head) {
-            return HandleGetRecords(req.target());
+            std::string_view full_target = target;
+            std::string_view query = ""sv;
+            
+            // Выделяем строго query-параметры, отсекая путь
+            if (auto pos = full_target.find('?'); pos != std::string_view::npos) {
+                query = full_target.substr(pos + 1);
+            }
+            
+            auto response = HandleGetRecords(query);
+            
+            // Спецификация HTTP: для HEAD конструируем те же заголовки, но очищаем тело
+            if (method == http::verb::head) {
+                response.body().clear();
+                response.prepare_payload();
+            }
+            return response;
         }
         return MakeJsonResponseWithAllow(http::status::method_not_allowed, 
             json::value{{"code", "invalidMethod"}, {"message", "Invalid method"}}, "GET, HEAD"sv);
@@ -190,11 +206,11 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(std::string_vie
         lost_obj[{buf, static_cast<size_t>(ptr - buf)}] = json::value_from(loot);
     }
 
-    json::object res;
-    res["players"] = players_obj;
-    res["lostObjects"] = lost_obj;
+    json::object state_res;
+    state_res["players"] = std::move(players_obj);
+    state_res["lostObjects"] = std::move(lost_obj);
 
-    return MakeJsonResponse(http::status::ok, res);
+    return MakeJsonResponse(http::status::ok, state_res);
 }
 
 http::response<http::string_body> ApiHandler::HandlePlayerAction(std::string_view auth_header, std::string_view body_str) {
@@ -203,7 +219,7 @@ http::response<http::string_body> ApiHandler::HandlePlayerAction(std::string_vie
         return MakeJsonResponse(http::status::unauthorized, 
             json::value{{"code", "invalidToken"}, {"message", "Authorization header is required"}});
     }
-    
+
     auto player = app_.FindPlayerByToken(*token_opt);
     if (!player) {
         return MakeJsonResponse(http::status::unauthorized, 
@@ -212,72 +228,16 @@ http::response<http::string_body> ApiHandler::HandlePlayerAction(std::string_vie
 
     try {
         auto body = json::parse({body_str.data(), body_str.size()});
-        auto move_it = body.as_object().find("move");
-        if (!body.is_object() || move_it == body.as_object().end()) throw std::runtime_error("bad move");
-        std::string_view move_cmd = json::value_to<std::string_view>(move_it->value());
-        app_.MovePlayer(*token_opt, move_cmd);
-        return MakeJsonResponse(http::status::ok, json::object{});
-    } catch (...) {
-        return MakeJsonResponse(http::status::bad_request, 
-            json::value{{"code", "invalidArgument"}, {"message", "Failed to parse action"}});
-    }
-}
-
-http::response<http::string_body> ApiHandler::HandleGetRecords(std::string_view query) {
-    size_t start = 0;
-    size_t max_items = 100;
-
-    // Парсим query string
-    auto pos = query.find('?');
-    if (pos != std::string_view::npos) {
-        std::string_view params = query.substr(pos + 1);
-        while (!params.empty()) {
-            auto eq_pos = params.find('=');
-            auto amp_pos = params.find('&');
-            if (eq_pos == std::string_view::npos) break;
-
-            std::string_view key = params.substr(0, eq_pos);
-            std::string_view val = (amp_pos == std::string_view::npos) 
-                ? params.substr(eq_pos + 1) 
-                : params.substr(eq_pos + 1, amp_pos - eq_pos - 1);
-
-            try {
-                if (key == "start") {
-                    start = std::stoul(std::string(val));
-                } else if (key == "maxItems") {
-                    max_items = std::stoul(std::string(val));
-                }
-            } catch (...) {
-                return MakeJsonResponse(http::status::bad_request, 
-                    json::value{{"code", "invalidArgument"}, {"message", "Invalid query parameters"}});
-            }
-
-            if (amp_pos == std::string_view::npos) break;
-            params = params.substr(amp_pos + 1);
+        auto const& obj = body.as_object();
+        if (auto it = obj.find("move"); it != obj.end()) {
+            std::string_view move_cmd = json::value_to<std::string_view>(it->value());
+            app_.MovePlayer(*token_opt, move_cmd);
+            return MakeJsonResponse(http::status::ok, json::object{});
         }
-    }
+    } catch (...) {}
 
-    if (max_items > 100) {
-        return MakeJsonResponse(http::status::bad_request, 
-            json::value{{"code", "invalidArgument"}, {"message", "maxItems cannot exceed 100"}});
-    }
-
-    auto records = app_.GetRecords(start, max_items);
-    json::array result;
-    for (const auto& record : records) {
-        result.push_back({
-            {"name", record.name},
-            {"score", record.score},
-            {"playTime", record.play_time}
-        });
-    }
-
-    http::response<http::string_body> res{http::status::ok, 11};
-    res.set(http::field::content_type, "application/json");
-    res.set(http::field::cache_control, "no-cache");
-    res.body() = json::serialize(result);
-    res.set(http::field::content_length, std::to_string(res.body().size()));
-    return res;
+    return MakeJsonResponse(http::status::bad_request, 
+        json::value{{"code", "invalidArgument"}, {"message", "Failed to parse action"}});
 }
 
 http::response<http::string_body> ApiHandler::HandleTick(std::string_view body_str) {
@@ -288,55 +248,122 @@ http::response<http::string_body> ApiHandler::HandleTick(std::string_view body_s
 
     try {
         auto body = json::parse({body_str.data(), body_str.size()});
-        auto delta_it = body.as_object().find("timeDelta");
-        if (delta_it == body.as_object().end()) throw std::runtime_error("not a number");
-        auto delta_val = delta_it->value();
-        if (!delta_val.is_number()) throw std::runtime_error("not a number");
-        
-        uint64_t delta = delta_val.as_int64();
-        app_.Tick(std::chrono::milliseconds(delta));
-        return MakeJsonResponse(http::status::ok, json::object{});
-    } catch (...) {
-        return MakeJsonResponse(http::status::bad_request, 
-            json::value{{"code", "invalidArgument"}, {"message", "Failed to parse tick"}});
-    }
+        auto const& obj = body.as_object();
+        if (auto it = obj.find("timeDelta"); it != obj.end()) {
+            uint64_t delta_ms = it->value().as_int64();
+            app_.Tick(std::chrono::milliseconds(delta_ms));
+            return MakeJsonResponse(http::status::ok, json::object{});
+        }
+    } catch (...) {}
+
+    return MakeJsonResponse(http::status::bad_request, 
+        json::value{{"code", "invalidArgument"}, {"message", "Failed to parse tick"}});
 }
 
+http::response<http::string_body> ApiHandler::HandleGetRecords(std::string_view query) {
+    size_t start = 0;
+    size_t max_items = 100;
+
+    // Универсальный парсер параметров
+    auto parse_query_param = [](std::string_view q, std::string_view key) -> std::optional<size_t> {
+        size_t pos = 0;
+        while ((pos = q.find(key, pos)) != std::string_view::npos) {
+            bool is_start = (pos == 0 || q[pos - 1] == '&');
+            size_t next_pos = pos + key.size();
+            
+            if (is_start && next_pos < q.size() && q[next_pos] == '=') {
+                size_t val_start = next_pos + 1;
+                size_t val_end = q.find('&', val_start);
+                std::string_view val_str = q.substr(val_start, val_end - val_start);
+                
+                size_t result = 0;
+                // std::from_chars корректно работает строго в границах val_str
+                auto [ptr, ec] = std::from_chars(val_str.data(), val_str.data() + val_str.size(), result);
+                if (ec == std::errc{}) {
+                    return result;
+                }
+            }
+            pos += key.size();
+        }
+        return std::nullopt;
+    };
+
+    if (auto start_opt = parse_query_param(query, "start")) start = *start_opt;
+    if (auto max_opt = parse_query_param(query, "maxItems")) max_items = *max_opt;
+
+    // Проверка лимита maxItems по ТЗ
+    if (max_items > 100) {
+        http::response<http::string_body> response(http::status::bad_request, 11);
+        response.set(http::field::content_type, "application/json");
+        response.body() = R"({"code": "badRequest", "message": "maxItems cannot exceed 100"})";
+        response.prepare_payload();
+        return response;
+    }
+
+    // Получаем записи из базы данных
+    auto records = app_.GetRecords(start, max_items);
+
+    // ВРУЧНУЮ собираем JSON-массив в виде строки.
+    std::string json_str = "[";
+    for (size_t i = 0; i < records.size(); ++i) { // ИСПРАВЛЕНО: ++i вместо ++1
+        const auto& record = records[i];
+        
+        // Превращаем имя в безопасную JSON-строку
+        std::string escaped_name;
+        escaped_name.reserve(record.name.size()); // Оптимизация аллокаций
+        for (char c : record.name) {
+            if (c == '"' || c == '\\') escaped_name += '\\';
+            escaped_name += c;
+        }
+
+        // Форматируем play_time, гарантируя точку (float)
+        char time_buf[64];
+        int written = std::snprintf(time_buf, sizeof(time_buf), "%.3f", record.play_time);
+
+        json_str += "{\"name\":\"" + escaped_name + "\",";
+        json_str += "\"score\":" + std::to_string(record.score) + ",";
+        json_str += "\"playTime\":" + std::string(time_buf, static_cast<size_t>(written)) + "}";
+        
+        if (i + 1 < records.size()) {
+            json_str += ",";
+        }
+    }
+    json_str += "]";
+
+    // Формируем чистый HTTP-ответ
+    http::response<http::string_body> response(http::status::ok, 11);
+    response.set(http::field::content_type, "application/json");
+    response.set(http::field::cache_control, "no-cache");
+    response.body() = std::move(json_str);
+    response.prepare_payload();
+    
+    return response;
+}
+
+
 http::response<http::string_body> ApiHandler::MakeJsonResponse(http::status status, json::value body) {
-    http::response<http::string_body> res{status, 11};
-    res.set(http::field::content_type, "application/json");
-    res.set(http::field::cache_control, "no-cache");
-    res.body() = json::serialize(body);
-    res.prepare_payload();
-    return res;
+    http::response<http::string_body> response(status, 11);
+    response.set(http::field::content_type, "application/json");
+    response.body() = json::serialize(body);
+    response.prepare_payload();
+    return response;
 }
 
 http::response<http::string_body> ApiHandler::MakeJsonResponseWithAllow(http::status status, json::value body, std::string_view allow) {
-    http::response<http::string_body> res{status, 11};
-    res.set(http::field::content_type, "application/json");
-    res.set(http::field::cache_control, "no-cache");
-    res.set(http::field::allow, allow);
-    res.body() = json::serialize(body);
-    res.prepare_payload();
-    return res;
+    auto response = MakeJsonResponse(status, std::move(body));
+    response.set(http::field::allow, allow);
+    return response;
 }
 
 std::optional<app::Token> ApiHandler::TryExtractToken(std::string_view auth_header) {
-    constexpr std::string_view AUTH_PREFIX = "Bearer ";
-    constexpr size_t EXPECTED_TOKEN_LENGTH = 32;
-
-    if (auth_header.empty() || 
-        !auth_header.starts_with(AUTH_PREFIX) || 
-        auth_header.size() <= AUTH_PREFIX.size()) {
-        return std::nullopt;
+    static constexpr std::string_view BEARER = "Bearer "sv;
+    if (auth_header.starts_with(BEARER)) {
+        std::string token_str(auth_header.substr(BEARER.size()));
+        if (token_str.length() == 32) {
+            return app::Token(token_str);
+        }
     }
-
-    std::string token_str(auth_header.substr(AUTH_PREFIX.size()));
-    if (token_str.size() != EXPECTED_TOKEN_LENGTH) {
-        return std::nullopt;
-    }
-
-    return app::Token{std::move(token_str)};
+    return std::nullopt;
 }
 
 } // namespace http_handler

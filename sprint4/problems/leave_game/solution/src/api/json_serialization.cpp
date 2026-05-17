@@ -151,3 +151,15 @@ void tag_invoke(json::value_from_tag, json::value& jv, const Player& player) {
 }
 
 } // namespace app
+
+namespace infra {
+
+void tag_invoke(boost::json::value_from_tag, boost::json::value& jv, const Record& record) {
+    jv = boost::json::object{
+        {"name", record.name},
+        {"score", record.score},
+        {"playTime", record.play_time}
+    };
+}
+
+} // namespace infra
