@@ -1,7 +1,6 @@
 #include "commands.hpp"
 #include "json_parser.hpp"
 #include "json_utils.hpp"
-#include <format> // Включаем заголовок для std::format
 
 // --- AddBookCommand ---
 AddBookCommand::AddBookCommand(BookRepository& repo) : repo_(repo) {}
@@ -44,7 +43,7 @@ std::string AddBookCommand::Execute(std::string_view line) {
 
     bool success = repo_.Add(new_book);
  
-    return std::format("{{\"result\":{}}}", json_utils::FormatJsonBool(success));
+    return std::string("{\"result\":") + json_utils::FormatJsonBool(success) + "}";
 }
 
 // --- AllBooksCommand ---
@@ -62,20 +61,13 @@ std::string AllBooksCommand::Execute(std::string_view) {
         first = false;
         
         // Форматируем структуру книги
-        json_out += std::format(
-            "{{"
-            "\"id\":{},"
-            "\"title\":\"{}\","
-            "\"author\":\"{}\","
-            "\"year\":{},"
-            "\"ISBN\":{}"
-            "}}",
-            book.id,
-            json_utils::EscapeJsonString(book.title),
-            json_utils::EscapeJsonString(book.author),
-            book.year,
-            json_utils::FormatNullableString(book.isbn)
-        );
+        json_out += std::string("{")
+            + "\"id\":" + std::to_string(book.id) + ","
+            + "\"title\":\"" + json_utils::EscapeJsonString(book.title) + "\","
+            + "\"author\":\"" + json_utils::EscapeJsonString(book.author) + "\","
+            + "\"year\":" + std::to_string(book.year) + ","
+            + "\"ISBN\":" + json_utils::FormatNullableString(book.isbn)
+            + "}";
     }
     json_out += "]";
     return json_out;
