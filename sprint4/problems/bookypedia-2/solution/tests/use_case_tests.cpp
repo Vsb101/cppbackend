@@ -1,8 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
-#include <stdexcept>
-#include <vector>
-#include <optional>
 
 #include "../src/app/use_cases_impl.h"
 #include "../src/domain/author.h"
@@ -18,25 +15,7 @@ struct MockAuthorRepository : domain::AuthorRepository {
         saved_authors.emplace_back(author);
     }
 
-    void Delete(const std::string& author_id) override {
-        saved_authors.erase(
-            std::remove_if(saved_authors.begin(), saved_authors.end(),
-                [&author_id](const domain::Author& author) {
-                    return author.GetId().ToString() == author_id;
-                }),
-            saved_authors.end());
-    }
-
-    void Edit(const info::AuthorInfo& author) override {
-        for (auto& a : saved_authors) {
-            if (a.GetId().ToString() == author.id) {
-                a = domain::Author(a.GetId(), author.name);
-                break;
-            }
-        }
-    }
-
-    info::Authors GetAuthors() const override {
+    info::Authors GetAuthors() const {
         info::Authors res;
         res.reserve(saved_authors.size());
         for (const auto& author : saved_authors) {
@@ -46,11 +25,14 @@ struct MockAuthorRepository : domain::AuthorRepository {
     }
 
     std::optional<info::AuthorInfo> GetAuthorByName(const std::string& author_name) const {
-        auto it = std::find_if(saved_authors.begin(), saved_authors.end(),
-            [author_name](const domain::Author& author){return author.GetName() == author_name;});
+        // saved_authors.fi
+        // const auto it = actions_.find(cmd); it != actions_.cend()
+        auto it = std::find_if(saved_authors.begin(), saved_authors.end()
+        , [author_name](const domain::Author& author){return author.GetName() == author_name;});
         if (it == saved_authors.end()) {
             return std::nullopt;
         }
+        // it->GetId().ToString()
         return {{.id = it->GetId().ToString(), .name = it->GetName()}};
     }
 };
@@ -61,35 +43,6 @@ struct MockBookRepository : domain::BookRepository {
     void Save(const domain::Book& book) override {
         saved_books.emplace_back(book);
     }
-
-    void DeleteBooks(const std::string& author_id) override {
-        saved_books.erase(
-            std::remove_if(saved_books.begin(), saved_books.end(),
-                [&author_id](const domain::Book& book) {
-                    return book.GetAuthorId().ToString() == author_id;
-                }),
-            saved_books.end());
-    }
-
-    void DeleteBook(const std::string& book_id) override {
-        saved_books.erase(
-            std::remove_if(saved_books.begin(), saved_books.end(),
-                [&book_id](const domain::Book& book) {
-                    return book.GetId().ToString() == book_id;
-                }),
-            saved_books.end());
-    }
-
-    void EditBook(const info::BookInfo& book) override {
-        for (auto& b : saved_books) {
-            if (b.GetId().ToString() == book.title) {
-                // У Book нет метода SetTitle, создаём новый объект
-                // Это упрощённая реализация
-                break;
-            }
-        }
-    }
-
     info::Books GetBooks() const override {
         info::Books res;
         res.reserve(saved_books.size());
@@ -100,15 +53,6 @@ struct MockBookRepository : domain::BookRepository {
             return left.title < right.title;
         });
         return res;
-    }
-
-    info::BookInfo GetBook(const std::string& book_id) const override {
-        auto it = std::find_if(saved_books.begin(), saved_books.end(),
-            [&book_id](const domain::Book& book){return book.GetId().ToString() == book_id;});
-        if (it == saved_books.end()) {
-            throw std::runtime_error("Book not found");
-        }
-        return {{it->GetTitle(), it->GetPublicationYear()}};
     }
 
     info::Books GetBooksByAuthor(const std::string& author_id) const override {
@@ -125,16 +69,6 @@ struct MockBookRepository : domain::BookRepository {
             }
             return left.title < right.title;
         });
-        return res;
-    }
-
-    info::Books GetBooksByTitle(const std::string& book_title) const override {
-        info::Books res;
-        for (const auto& book : saved_books) {
-            if (book.GetTitle() == book_title) {
-                res.emplace_back(book.GetTitle(), book.GetPublicationYear());
-            }
-        }
         return res;
     }
 };
