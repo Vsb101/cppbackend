@@ -87,13 +87,14 @@ INSERT INTO books (id, author_id, title, publication_year) VALUES ($1, $2, $3, $
 std::vector<domain::Book> BookRepositoryImpl::GetAll() const {
     pqxx::read_transaction r{connection_};
     
-    // Делаем LEFT JOIN. Сортируем сначала по ID книги, чтобы строки одной книги шли подряд
+    // Делаем тройной JOIN, чтобы вытащить имя автора (a.name) для правильной сортировки по ТЗ
     pqxx::result rows = r.exec(
         R"(
 SELECT b.id, b.author_id, b.title, b.publication_year, t.tag 
 FROM books b 
+JOIN authors a ON b.author_id = a.id
 LEFT JOIN book_tags t ON b.id = t.book_id 
-ORDER BY b.title, b.id, t.tag;
+ORDER BY b.title, a.name, b.publication_year, b.id, t.tag;
 )"
     );
 
@@ -102,14 +103,12 @@ ORDER BY b.title, b.id, t.tag;
         return result;
     }
 
-    // Вспомогательные переменные для сборки книги из нескольких строк
     std::optional<domain::BookId> current_book_id;
     domain::AuthorId current_author_id;
     std::string current_title;
     int current_year = 0;
     std::vector<std::string> current_tags;
 
-    // Лямбда-функция для сохранения накопленной книги в вектор
     auto push_current_book = [&]() {
         if (current_book_id.has_value()) {
             result.emplace_back(
@@ -119,7 +118,7 @@ ORDER BY b.title, b.id, t.tag;
                 current_year,
                 std::move(current_tags)
             );
-            current_tags.clear(); // Очищаем вектор для следующей книги
+            current_tags.clear();
         }
     };
 
@@ -127,25 +126,20 @@ ORDER BY b.title, b.id, t.tag;
         auto const& row = rows[i];
         auto row_book_id = domain::BookId::FromString(row[0].template as<std::string>());
 
-        // Если это новая книга (или самая первая строка)
         if (!current_book_id.has_value() || *current_book_id != row_book_id) {
-            // Сохраняем предыдущую книгу, если она была
             push_current_book();
 
-            // Инициализируем данные новой книги
             current_book_id = row_book_id;
             current_author_id = domain::AuthorId::FromString(row[1].template as<std::string>());
             current_title = row[2].template as<std::string>();
             current_year = row[3].template as<int>();
         }
 
-        // Если тег у строки есть (поле не NULL), добавляем его в список тегов текущей книги
         if (!row[4].is_null()) {
             current_tags.push_back(row[4].template as<std::string>());
         }
     }
 
-    // Не забываем сохранить самую последнюю книгу после выхода из цикла
     push_current_book();
 
     return result;
@@ -326,7 +320,7 @@ Database::Database(pqxx::connection connection)
     : connection_{std::move(connection)} {
     pqxx::work work{connection_};
     
-    // 1. Создаем таблицу авторов, только если ее нет
+    // Создаем таблицу авторов, только если ее нет
     work.exec(R"(
 CREATE TABLE IF NOT EXISTS authors (
     id UUID CONSTRAINT author_id_constraint PRIMARY KEY,
@@ -334,20 +328,20 @@ CREATE TABLE IF NOT EXISTS authors (
 );
 )"_zv);
 
-    // 2. Создаем таблицу книг, только если ее нет
+    // Создаем таблицу книг, только если ее нет
     work.exec(R"(
 CREATE TABLE IF NOT EXISTS books (
     id UUID CONSTRAINT book_id_constraint PRIMARY KEY,
-    author_id UUID NOT NULL REFERENCES authors(id) ON DELETE CASCADE,
+    author_id UUID NOT NULL REFERENCES authors(id),
     title varchar(100) NOT NULL,
     publication_year int NOT NULL
 );
 )"_zv);
 
-    // 3. Создаем таблицу тегов, только если ее нет
+    // Создаем таблицу тегов, только если ее нет
     work.exec(R"(
 CREATE TABLE IF NOT EXISTS book_tags (
-    book_id UUID NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    book_id UUID NOT NULL REFERENCES books(id),
     tag varchar(30) NOT NULL,
     CONSTRAINT book_tag_pkey PRIMARY KEY (book_id, tag)
 );

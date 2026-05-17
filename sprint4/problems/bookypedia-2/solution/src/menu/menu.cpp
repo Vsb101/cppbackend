@@ -1,8 +1,6 @@
 #include "menu.h"
 
-#include <format>
 #include <iomanip>
-#include <ios>
 #include <sstream>
 
 namespace menu {
@@ -56,10 +54,9 @@ void Menu::ShowInstructions() const {
     output_ << std::left << std::setfill(' ');
     
     for (const auto& [action_name, info] : actions_) {
-        output_ << std::format("{:<{}} {:<{}} {}\n",
-            action_name, actions_width_ + 1,
-            info.args, args_width_ + 1,
-            info.description);
+        output_ << std::setw(actions_width_ + 1) << action_name;
+        output_ << std::setw(args_width_ + 1) << info.args;
+        output_ << info.description << std::endl;
     }
 }
 
@@ -77,14 +74,12 @@ bool Menu::ParseCommand(std::istream& input) {
                 output_ << "Command '"sv << cmd << "' has not been found."sv << std::endl;
             }
         } else {
-            // Если поток пустой (например, пустая строка), просто ничего не делаем
-            // output_ << "Invalid command"sv << std::endl;
+            output_ << "Invalid command"sv << std::endl;
         }
     } catch (const std::exception& e) {
         output_ << e.what() << std::endl;
     }
     return true;
 }
-
 
 }  // namespace menu

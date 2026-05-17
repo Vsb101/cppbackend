@@ -31,7 +31,6 @@ void UseCasesImpl::AddAuthor(const std::string& name) {
 }
 
 static std::vector<std::string> NormalizeTags(const std::vector<std::string>& raw_tags) {
-    std::vector<std::string> result;
     std::set<std::string> seen;
 
     for (const auto& raw_tag : raw_tags) {
@@ -48,17 +47,10 @@ static std::vector<std::string> NormalizeTags(const std::vector<std::string>& ra
             continue;
         }
 
-        // Пропускаем дубликаты
-        if (seen.find(tag) == seen.end()) {
-            seen.insert(tag);
-            result.push_back(tag);
-        }
+        seen.insert(tag);
     }
 
-    // Сортируем теги по алфавиту для предсказуемого порядка (согласно ТЗ)
-    std::sort(result.begin(), result.end());
-
-    return result;
+    return std::vector<std::string>(seen.begin(), seen.end());
 }
 
 AddBookResult UseCasesImpl::AddBookWithAuthorSelection(
@@ -83,10 +75,7 @@ AddBookResult UseCasesImpl::AddBookWithAuthorSelection(
     }
 
     if (is_number) {
-        auto authors = authors_->GetAll();
-        std::sort(authors.begin(), authors.end(), [](const auto& a, const auto& b) {
-            return a.GetName() < b.GetName();
-        });
+        auto authors = authors_->GetAll(); // Строго порядок из БД (ORDER BY name)
         
         int author_idx = std::stoi(author_input) - 1;
         if (author_idx < 0 || author_idx >= static_cast<int>(authors.size())) {
@@ -129,9 +118,9 @@ std::vector<domain::Book> UseCasesImpl::GetBooks() const {
 
 bool UseCasesImpl::DeleteAuthor(const std::string& author_input) {
     AuthorId author_id;
-    bool id_found = false;
 
-    bool is_number = !author_input.empty();
+    // Проверяем, является ли ввод номером автора
+    bool is_number = true;
     for (char c : author_input) {
         if (!std::isdigit(static_cast<unsigned char>(c))) {
             is_number = false;
@@ -139,51 +128,33 @@ bool UseCasesImpl::DeleteAuthor(const std::string& author_input) {
         }
     }
 
-    if (is_number) {
+    if (is_number && !author_input.empty()) {
+        // Выбор автора из списка по номеру
         auto authors = authors_->GetAll();
-        std::sort(authors.begin(), authors.end(), [](const auto& a, const auto& b) {
-            return a.GetName() < b.GetName();
-        });
-        
         int author_idx = std::stoi(author_input) - 1;
-        if (author_idx >= 0 && author_idx < static_cast<int>(authors.size())) {
-            author_id = authors[author_idx].GetId();
-            id_found = true;
+        if (author_idx < 0 || author_idx >= static_cast<int>(authors.size())) {
+            return false;
         }
+        author_id = authors[author_idx].GetId();
+    } else {
+        // Поиск автора по имени
+        auto author_opt = authors_->LoadByName(author_input);
+        if (!author_opt) {
+            return false;
+        }
+        author_id = author_opt->GetId();
     }
 
-    if (!id_found) {
-        if (author_input.length() == 36 && author_input.find('-') != std::string::npos) {
-            try {
-                auto target_id = domain::AuthorId::FromString(author_input);
-                if (authors_->LoadById(target_id).has_value()) {
-                    author_id = target_id;
-                    id_found = true;
-                }
-            } catch (...) {}
-        }
-        
-        if (!id_found) {
-            auto author_opt = authors_->LoadByName(author_input);
-            if (!author_opt) {
-                return false; 
-            }
-            author_id = author_opt->GetId();
-        }
-    }
-
-    if (!authors_->LoadById(author_id).has_value()) {
-        return false;
-    }
-
-    // Ручной каскад: сначала очищаем все книги автора и их теги
-    auto author_books = books_->GetByAuthorId(author_id);
+    // Удаляем все книги автора (сначала теги, потом книги)
+    auto author_books = authors_->GetAuthorBooks(author_id);
     for (const auto& book : author_books) {
         books_->DeleteBookTags(book.GetId());
+    }
+    for (const auto& book : author_books) {
         books_->Delete(book.GetId());
     }
 
-    // После этого удаление автора безопасно
+    // Удаляем автора
     authors_->Delete(author_id);
     return true;
 }
