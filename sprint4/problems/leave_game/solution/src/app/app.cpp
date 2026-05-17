@@ -140,13 +140,6 @@ void Application::Tick(std::chrono::milliseconds delta) {
         if (!records_to_add.empty()) {
             logger::LogInfo("Players retiring", std::to_string(records_to_add.size()));
         }
-                }
-            }
-        }
-        
-        if (!records_to_add.empty()) {
-            logger::LogInfo("Players retiring", std::to_string(records_to_add.size()));
-        }
         
         for (const auto& token : tokens_to_remove) {
             auto player = tokens_.FindPlayerByToken(token);
