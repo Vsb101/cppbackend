@@ -5,40 +5,48 @@
 
 namespace info {
 
+// Параметры для добавления книги
 struct AddBookParams {
-    std::string title;
-    std::string author_id;
-    std::string author_name;
-    int publication_year = 0;
+    std::string title;        // Название книги
+    std::string author_id;    // ID автора (если выбран из списка)
+    std::string author_name;  // Имя автора (если введено вручную)
+    int publication_year = 0; // Год публикации
 };
 
+// Информация об авторе (для передачи между слоями)
 struct AuthorInfo {
-    std::string id;
-    std::string name;
+    std::string id;   // Уникальный идентификатор
+    std::string name; // Имя автора
 };
 
+// Информация о теге
 struct TagInfo {
-    std::string tag;
+    std::string tag; // Текст тега
 };
 
-using Authors = std::vector<AuthorInfo>;
-using Tags = std::vector<TagInfo>;
+// Алиасы для коллекций
+using Authors = std::vector<AuthorInfo>; // Список авторов
+using Tags = std::vector<TagInfo>;       // Список тегов
 
+// Информация о книге (для передачи между слоями)
 struct BookInfo {
-    std::string title;
-    int publication_year;
-    std::string author_name;
-    std::vector<std::string> tags;
-    std::string id;  
+    std::string title;             // Название книги
+    int publication_year;          // Год публикации
+    std::string author_name;       // Имя автора
+    std::vector<std::string> tags; // Список тегов
+    std::string id;                // Уникальный идентификатор
 };
 
+// Список книг
 using Books = std::vector<BookInfo>;
 
+// Оператор вывода для AuthorInfo
 inline std::ostream& operator<<(std::ostream& out, const AuthorInfo& author) {
     out << author.name;
     return out;
 }
 
+// Оператор вывода для BookInfo
 inline std::ostream& operator<<(std::ostream& out, const BookInfo& book) {
     out << book.title << ", " << book.publication_year;
     return out;

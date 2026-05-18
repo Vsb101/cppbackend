@@ -240,7 +240,6 @@ namespace ui {
     }
 
     bool View::ShowAuthorBooks() const {
-        // TODO: handle error
         try {
             if (auto author_id = SelectAuthor()) {
                 PrintVector(output_, GetAuthorBooks(author_id->id));
