@@ -12,6 +12,7 @@
 
 namespace {
 
+// URL базы данных из окружения или дефолтный для тестов
 constexpr const char* DB_URL_ENV = "BOOKYPEDIA_DB_URL";
 
 std::string GetTestDbUrl() {
@@ -22,6 +23,7 @@ std::string GetTestDbUrl() {
     return "postgres://postgres:postgres@localhost:5432/bookypedia_test";
 }
 
+// Удаляет тестовые таблицы перед/после тестов
 void DropTestTables() {
     try {
         pqxx::connection conn{GetTestDbUrl()};
@@ -31,10 +33,11 @@ void DropTestTables() {
         tx.exec("DROP TABLE IF EXISTS authors CASCADE");
         tx.commit();
     } catch (...) {
-        // Ignore errors during cleanup
+        // Игнорируем ошибки при очистке
     }
 }
 
+// Создаёт тестовые таблицы
 void CreateTestTables() {
     pqxx::connection conn{GetTestDbUrl()};
     pqxx::work tx{conn};
@@ -61,6 +64,8 @@ void CreateTestTables() {
     tx.commit();
 }
 
+// Тестовая фикстура для интеграционных тестов
+// Автоматически создаёт и удаляет таблицы
 class IntegrationFixture {
 public:
     IntegrationFixture() {
@@ -81,9 +86,11 @@ public:
 }  // namespace
 
 // ============================================================================
-// Integration tests with PostgreSQL
+// Интеграционные тесты с реальной PostgreSQL
+// Проверяют работу с БД: SQL-запросы, транзакции, внешние ключи
 // ============================================================================
 
+// Тест: добавление и получение автора
 TEST_CASE("Integration: Add and retrieve author") {
     IntegrationFixture fixture;
 
@@ -95,6 +102,7 @@ TEST_CASE("Integration: Add and retrieve author") {
     CHECK(!authors[0].id.empty());
 }
 
+// Тест: добавление книги с тегами
 TEST_CASE("Integration: Add book with tags") {
     IntegrationFixture fixture;
 
@@ -113,6 +121,7 @@ TEST_CASE("Integration: Add book with tags") {
     REQUIRE(books[0].tags.size() == 3);
 }
 
+// Тест: удаление книги и её тегов
 TEST_CASE("Integration: Delete book and its tags") {
     IntegrationFixture fixture;
 
@@ -131,6 +140,7 @@ TEST_CASE("Integration: Delete book and its tags") {
     CHECK(books.empty());
 }
 
+// Тест: каскадное удаление автора, книг и тегов
 TEST_CASE("Integration: Delete author and cascade delete books and tags") {
     IntegrationFixture fixture;
 
@@ -153,6 +163,7 @@ TEST_CASE("Integration: Delete author and cascade delete books and tags") {
     CHECK(authors.empty());
 }
 
+// Тест: редактирование книги (название, год, теги)
 TEST_CASE("Integration: Edit book") {
     IntegrationFixture fixture;
 
@@ -177,6 +188,7 @@ TEST_CASE("Integration: Edit book") {
     REQUIRE(updated_book.tags.size() == 2);
 }
 
+// Тест: редактирование имени автора
 TEST_CASE("Integration: Edit author") {
     IntegrationFixture fixture;
 
@@ -197,6 +209,7 @@ TEST_CASE("Integration: Edit author") {
     CHECK(!old_author.has_value());
 }
 
+// Тест: поиск книг по названию
 TEST_CASE("Integration: Get books by title") {
     IntegrationFixture fixture;
 
@@ -217,6 +230,7 @@ TEST_CASE("Integration: Get books by title") {
     REQUIRE(unique_books.size() == 1);
 }
 
+// Тест: получение всех книг автора
 TEST_CASE("Integration: Get author books") {
     IntegrationFixture fixture;
 
@@ -231,6 +245,7 @@ TEST_CASE("Integration: Get author books") {
     REQUIRE(author_books.size() == 2);
 }
 
+// Тест: теги сортируются по алфавиту
 TEST_CASE("Integration: Tags are sorted alphabetically") {
     IntegrationFixture fixture;
 
@@ -250,6 +265,7 @@ TEST_CASE("Integration: Tags are sorted alphabetically") {
     CHECK(book.tags[2] == "zebra");
 }
 
+// Тест: дубликаты тегов не сохраняются
 TEST_CASE("Integration: Duplicate tags are not stored") {
     IntegrationFixture fixture;
 
@@ -266,6 +282,7 @@ TEST_CASE("Integration: Duplicate tags are not stored") {
     REQUIRE(book.tags.size() == 2);
 }
 
+// Тест: несколько авторов с книгами
 TEST_CASE("Integration: Multiple authors with books") {
     IntegrationFixture fixture;
 
@@ -286,6 +303,7 @@ TEST_CASE("Integration: Multiple authors with books") {
     REQUIRE(books.size() == 2);
 }
 
+// Тест: книга без тегов
 TEST_CASE("Integration: Book with empty tags list") {
     IntegrationFixture fixture;
 
@@ -301,6 +319,7 @@ TEST_CASE("Integration: Book with empty tags list") {
     CHECK(book.tags.empty());
 }
 
+// Тест: поиск несуществующего автора
 TEST_CASE("Integration: Get non-existent author") {
     IntegrationFixture fixture;
 
@@ -308,6 +327,7 @@ TEST_CASE("Integration: Get non-existent author") {
     CHECK(!author.has_value());
 }
 
+// Тест: получение несуществующей книги
 TEST_CASE("Integration: Get non-existent book") {
     IntegrationFixture fixture;
 
@@ -321,6 +341,7 @@ TEST_CASE("Integration: Get non-existent book") {
     CHECK(non_existent.title.empty());
 }
 
+// Тест: удаление несуществующего автора не ломает систему
 TEST_CASE("Integration: Delete non-existent author") {
     IntegrationFixture fixture;
 
@@ -329,10 +350,10 @@ TEST_CASE("Integration: Delete non-existent author") {
     auto initial_authors = fixture.use_cases_->GetAuthors();
     REQUIRE(initial_authors.size() == 1);
 
-    // Try to delete non-existent author
+    // Пытаемся удалить несуществующего автора
     fixture.use_cases_->DeleteAuthor("00000000-0000-0000-0000-000000000000");
     
-    // Should still have the original author
+    // Исходный автор должен остаться
     auto authors = fixture.use_cases_->GetAuthors();
     REQUIRE(authors.size() == 1);
 }

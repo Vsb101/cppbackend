@@ -8,6 +8,8 @@
 
 namespace {
 
+// Mock-репозиторий авторов для unit-тестов
+// Хранит данные в памяти, не обращаясь к БД
 struct MockAuthorRepository : domain::AuthorRepository {
     std::vector<domain::Author> saved_authors;
 
@@ -16,9 +18,11 @@ struct MockAuthorRepository : domain::AuthorRepository {
     }
 
     void Delete(const std::string& /*author_id*/) override {
+        // Имитация удаления
     }
 
     void Edit(const info::AuthorInfo& /*author*/) override {
+        // Имитация редактирования
     }
 
     info::Authors GetAuthors() const {
@@ -40,6 +44,7 @@ struct MockAuthorRepository : domain::AuthorRepository {
     }
 };
 
+// Mock-репозиторий книг для unit-тестов
 struct MockBookRepository : domain::BookRepository {
     std::vector<domain::Book> saved_books;
 
@@ -48,12 +53,15 @@ struct MockBookRepository : domain::BookRepository {
     }
 
     void DeleteBooks(const std::string& /*author_id*/) override {
+        // Удаление всех книг автора
     }
 
     void DeleteBook(const std::string& /*book_id*/) override {
+        // Удаление одной книги
     }
 
     void EditBook(const info::BookInfo& /*book*/) override {
+        // Редактирование книги
     }
 
     info::Books GetBooks() const override {
@@ -101,6 +109,7 @@ struct MockBookRepository : domain::BookRepository {
     }
 };
 
+// Тестовый фикстура с mock-репозиториями
 struct Fixture {
     MockAuthorRepository authors;
     MockBookRepository books;
@@ -108,20 +117,4 @@ struct Fixture {
 
 }  // namespace
 
-/* SCENARIO_METHOD(Fixture, "Book Adding") {
-    GIVEN("Use cases") {
-        postgres::UnitOfWorkFactoryImpl 
-        app::UseCasesImpl use_cases{authors, books};
-
-        WHEN("Adding an author") {
-            const auto author_name = "Joanne Rowling";
-            use_cases.AddAuthor(author_name);
-
-            THEN("author with the specified name is saved to repository") {
-                REQUIRE(authors.saved_authors.size() == 1);
-                CHECK(authors.saved_authors.at(0).GetName() == author_name);
-                CHECK(authors.saved_authors.at(0).GetId() != domain::AuthorId{});
-            }
-        }
-    }
-} */
+// Закомментированный пример использования SCENARIO_METHOD

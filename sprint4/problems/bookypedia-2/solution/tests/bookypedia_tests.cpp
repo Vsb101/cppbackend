@@ -13,7 +13,12 @@
 
 namespace {
 
-// Mock репозитории для unit-тестов
+// ============================================================================
+// Mock-репозитории для unit-тестов
+// Хранят данные в памяти, позволяют тестировать бизнес-логику без БД
+// ============================================================================
+
+// Mock репозиторий авторов
 struct MockAuthorRepository : domain::AuthorRepository {
     std::vector<domain::Author> saved_authors;
     std::vector<std::string> deleted_ids;
@@ -23,9 +28,9 @@ struct MockAuthorRepository : domain::AuthorRepository {
         auto it = std::find_if(saved_authors.begin(), saved_authors.end(),
             [&author](const domain::Author& a){ return a.GetId() == author.GetId(); });
         if (it != saved_authors.end()) {
-            *it = author;
+            *it = author;  // Обновление
         } else {
-            saved_authors.emplace_back(author);
+            saved_authors.emplace_back(author);  // Добавление
         }
     }
 
@@ -41,7 +46,6 @@ struct MockAuthorRepository : domain::AuthorRepository {
         edited_authors.push_back(author);
         for (auto& a : saved_authors) {
             if (a.GetId().ToString() == author.id) {
-                // В мок-репозитории нет метода обновления имени напрямую
                 break;
             }
         }
@@ -66,6 +70,7 @@ struct MockAuthorRepository : domain::AuthorRepository {
     }
 };
 
+// Mock репозиторий книг
 struct MockBookRepository : domain::BookRepository {
     std::vector<domain::Book> saved_books;
     std::vector<std::string> deleted_book_ids;
@@ -152,6 +157,7 @@ struct MockBookRepository : domain::BookRepository {
     }
 };
 
+// Mock репозиторий тегов
 struct MockTagRepository : domain::TagRepository {
     std::vector<domain::Tag> saved_tags;
     std::vector<std::string> deleted_tags_for_book;
@@ -177,7 +183,6 @@ struct MockTagRepository : domain::TagRepository {
 
     void DeleteTagsForAuthor(const std::string& author_id) override {
         deleted_tags_for_author.push_back(author_id);
-        // В реальном коде это удаляет теги для всех книг автора
     }
 
     void DeleteTagsForBook(const std::string& book_id) override {
@@ -200,13 +205,17 @@ struct MockTagRepository : domain::TagRepository {
     }
 };
 
-// Mock UnitOfWork
+// ============================================================================
+// Mock UnitOfWork и UnitOfWorkFactory для тестирования UseCasesImpl
+// ============================================================================
+
+// Mock UnitOfWork - имитирует транзакцию
 class MockUnitOfWork : public app::UnitOfWork {
 public:
     MockUnitOfWork(MockAuthorRepository* authors, MockBookRepository* books, MockTagRepository* tags)
         : authors_(authors), books_(books), tags_(tags) {}
 
-    void Commit() override {}
+    void Commit() override {}  // Имитация commit
 
     domain::AuthorRepository& Authors() override { return *authors_; }
     domain::BookRepository& Books() override { return *books_; }
@@ -218,7 +227,7 @@ private:
     MockTagRepository* tags_;
 };
 
-// Mock UnitOfWorkFactory
+// Mock фабрика UnitOfWork
 class MockUnitOfWorkFactory : public app::UnitOfWorkFactory {
 public:
     MockUnitOfWorkFactory(MockAuthorRepository* authors, MockBookRepository* books, MockTagRepository* tags)
@@ -238,8 +247,10 @@ private:
 
 // ============================================================================
 // Unit-тесты для UseCases
+// Тестируют бизнес-логику без обращения к БД
 // ============================================================================
 
+// Тест: успешное добавление автора
 TEST_CASE("AddAuthor - successful author creation") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -256,6 +267,7 @@ TEST_CASE("AddAuthor - successful author creation") {
     CHECK(mock_authors.saved_authors.at(0).GetId() != domain::AuthorId{});
 }
 
+// Тест: добавление нескольких авторов
 TEST_CASE("AddAuthor - multiple authors") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -274,6 +286,7 @@ TEST_CASE("AddAuthor - multiple authors") {
     REQUIRE(authors.size() == 3);
 }
 
+// Тест: поиск существующего автора
 TEST_CASE("GetAuthorByName - find existing author") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -290,6 +303,7 @@ TEST_CASE("GetAuthorByName - find existing author") {
     CHECK(!author->id.empty());
 }
 
+// Тест: поиск несуществующего автора
 TEST_CASE("GetAuthorByName - author not found") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -304,6 +318,7 @@ TEST_CASE("GetAuthorByName - author not found") {
     CHECK(!author.has_value());
 }
 
+// Тест: добавление книги с существующим автором и тегами
 TEST_CASE("AddBook - book with existing author") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -331,6 +346,7 @@ TEST_CASE("AddBook - book with existing author") {
     CHECK(std::find(book.tags.begin(), book.tags.end(), "politics") != book.tags.end());
 }
 
+// Тест: добавление книги без тегов
 TEST_CASE("AddBook - book with empty tags") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -352,6 +368,7 @@ TEST_CASE("AddBook - book with empty tags") {
     CHECK(book.tags.empty());
 }
 
+// Тест: добавление нескольких книг одному автору
 TEST_CASE("AddBook - multiple books by same author") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -371,6 +388,7 @@ TEST_CASE("AddBook - multiple books by same author") {
     REQUIRE(author_books.size() == 2);
 }
 
+// Тест: успешное удаление книги
 TEST_CASE("DeleteBook - successful deletion") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -398,6 +416,7 @@ TEST_CASE("DeleteBook - successful deletion") {
     CHECK(deleted_tags[0] == book_id);
 }
 
+// Тест: редактирование тегов книги
 TEST_CASE("EditBook - update tags") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -425,6 +444,7 @@ TEST_CASE("EditBook - update tags") {
     CHECK(std::find(updated_book.tags.begin(), updated_book.tags.end(), "new_tag2") != updated_book.tags.end());
 }
 
+// Тест: каскадное удаление автора, книг и тегов
 TEST_CASE("DeleteAuthor - cascade deletion") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -453,6 +473,7 @@ TEST_CASE("DeleteAuthor - cascade deletion") {
     CHECK(books.empty());
 }
 
+// Тест: сортировка книг
 TEST_CASE("GetBooks - sorting") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -474,7 +495,7 @@ TEST_CASE("GetBooks - sorting") {
     auto books = use_cases.GetBooks();
     REQUIRE(books.size() == 3);
     
-    // Books should be sorted by title, then author name, then year
+    // Книги сортируются: по названию, затем по автору, затем по году
     CHECK(books[0].title == "Another Title");
     CHECK(books[1].title == "Same Title");
     CHECK(books[1].author_name == "Author A");
@@ -482,6 +503,7 @@ TEST_CASE("GetBooks - sorting") {
     CHECK(books[2].author_name == "Author B");
 }
 
+// Тест: редактирование имени автора
 TEST_CASE("EditAuthor - update name") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
@@ -504,6 +526,7 @@ TEST_CASE("EditAuthor - update name") {
     CHECK(updated_author->id == author->id);
 }
 
+// Тест: поиск книг по названию
 TEST_CASE("GetBooksByTitle - find books by title") {
     MockAuthorRepository mock_authors;
     MockBookRepository mock_books;
