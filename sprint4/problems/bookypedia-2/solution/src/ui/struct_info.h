@@ -35,6 +35,34 @@ struct BookInfo {
     std::string author_name;       // Имя автора
     std::vector<std::string> tags; // Список тегов
     std::string id;                // Уникальный идентификатор
+    
+    // Дефолтный конструктор
+    BookInfo() = default;
+    
+    // Конструктор для быстрого создания без тегов и ID
+    BookInfo(std::string t, int year)
+        : title(std::move(t))
+        , publication_year(year)
+        , author_name("")
+        , tags()
+        , id("") {}
+    
+    // Конструктор с автором
+    BookInfo(std::string t, int year, std::string author)
+        : title(std::move(t))
+        , publication_year(year)
+        , author_name(std::move(author))
+        , tags()
+        , id("") {}
+    
+    // Полный конструктор
+    BookInfo(std::string t, int year, std::string author, 
+             std::vector<std::string> tg, std::string book_id)
+        : title(std::move(t))
+        , publication_year(year)
+        , author_name(std::move(author))
+        , tags(std::move(tg))
+        , id(std::move(book_id)) {}
 };
 
 // Список книг

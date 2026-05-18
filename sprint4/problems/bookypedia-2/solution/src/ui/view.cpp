@@ -6,6 +6,7 @@
 #include <iostream>
 #include <algorithm>
 #include <sstream>
+#include <unordered_set>
 
 #include "../app/use_cases.h"
 #include "../menu/menu.h"
@@ -28,17 +29,12 @@ namespace ui {
         , use_cases_{use_cases}
         , input_{input}
         , output_{output} {
-        menu_.AddAction(  //
-            "AddAuthor"s, "name"s, "Adds author"s, std::bind(&View::AddAuthor, this, ph::_1)
-            // либо
-            // [this](auto& cmd_input) { return AddAuthor(cmd_input); }
-        );
-        menu_.AddAction( "DeleteAuthor"s, "name"s, "Delete author"s
-            , [this](auto& cmd_input) { return DeleteAuthor(cmd_input); }
-        );
-        menu_.AddAction( "EditAuthor"s, "name"s, "Edit author"s
-            , [this](auto& cmd_input) { return EditAuthor(cmd_input); }
-        );
+        menu_.AddAction("AddAuthor"s, "name"s, "Adds author"s,
+                        std::bind(&View::AddAuthor, this, ph::_1));
+        menu_.AddAction("DeleteAuthor"s, "name"s, "Delete author"s,
+                        [this](auto& cmd_input) { return DeleteAuthor(cmd_input); });
+        menu_.AddAction("EditAuthor"s, "name"s, "Edit author"s,
+                        [this](auto& cmd_input) { return EditAuthor(cmd_input); });
         menu_.AddAction("AddBook"s, "<pub year> <title>"s, "Adds book"s,
                         std::bind(&View::AddBook, this, ph::_1));
         menu_.AddAction("ShowAuthors"s, {}, "Show authors"s, std::bind(&View::ShowAuthors, this));
@@ -108,21 +104,6 @@ namespace ui {
         return true;
     }
 
-/*             if (name.empty()) {
-                auto author_info = SelectAuthor();
-                if (author_info)
-                    id = author_info->id;
-                else {
-                    return true;
-                }
-            } else {
-                auto author = use_cases_.GetAuthorByName(name);
-                if (!author) {
-                    throw std::logic_error("");
-                }
-                id = author->id;
-            }
- */
     bool View::EditAuthor(std::istream& cmd_input) const {
         try {
             std::string author_id = ParsingNameAuthorOrSelect(cmd_input); 
@@ -206,7 +187,8 @@ namespace ui {
                 return true;
             }
             PrintBook(output_, use_cases_.GetBook(book_id));
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            output_ << "Failed to show book: " << e.what() << std::endl;
         }
         return true;
     }
@@ -218,7 +200,8 @@ namespace ui {
                 return true;
             }
             use_cases_.DeleteBook(book_id);
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            output_ << "Failed to delete book: " << e.what() << std::endl;
         }
         return true;
     }
@@ -260,21 +243,23 @@ namespace ui {
         if (params.publication_year == 0 || params.title.empty()) {
             return std::nullopt;
         }
+        if (params.publication_year < 1 || params.publication_year > 2100) {
+            throw std::logic_error("Publication year must be between 1 and 2100");
+        }
+
         auto author_info = EnterAuthor();
-        if(author_info.has_value()) {
+        if (author_info.has_value()) {
             params.author_id = author_info->id;
             params.author_name = author_info->name;
             return params;
         }
         
-        
         author_info = SelectAuthor();
-        if (not author_info.has_value())
+        if (not author_info.has_value()) {
             return std::nullopt;
-        else {
-            params.author_id = author_info->id;
-            return params;
         }
+        params.author_id = author_info->id;
+        return params;
     }
 
     std::optional<info::AuthorInfo> View::SelectAuthor() const {
@@ -303,27 +288,19 @@ namespace ui {
         return {{.id = authors[author_idx].id}};
     }
 
-    std::string View::SelectBook(info::Books books, bool auto_select_one_book) const {
-        // auto books = GetBooks();
-            // auto books = use_cases_.GetBooksByTitle(title);
-        // std::string book_id;
-
+    std::string View::SelectBook(const info::Books& books, bool auto_select_one_book) const {
         if (books.empty()) {
-            // if (!auto_select_one_book) {
-                throw std::logic_error("Book not found");
-            // }
-            return {};
+            throw std::logic_error("Book not found");
         } else if (books.size() == 1 && auto_select_one_book) {
             return books.at(0).id;
-        } 
+        }
 
         PrintBooks(output_, books);
         output_ << "Enter the book # or empty line to cancel:" << std::endl;
 
         std::string str;
         if (!std::getline(input_, str) || str.empty()) {
-            throw std::logic_error("Book not found");
-            // return {};
+            throw std::logic_error("Book selection cancelled");
         }
 
         int book_idx;
@@ -334,7 +311,7 @@ namespace ui {
         }
 
         --book_idx;
-        if (book_idx < 0 or book_idx >= books.size()) {
+        if (book_idx < 0 or book_idx >= static_cast<int>(books.size())) {
             throw std::runtime_error("Invalid book num");
         }
 
@@ -342,15 +319,12 @@ namespace ui {
     }
 
     std::optional<info::AuthorInfo> View::EnterAuthor() const {
-        // Приглашение ввести имя автора
         output_ << "Enter author name or empty line to select from list:" << std::endl;
         std::string name;
-        // Если пользователь ничего не ввел - выходим и ничено не возвращаем
         if (!std::getline(input_, name) || name.empty()) {
             return std::nullopt;
         }
-        // Если П ввел имя автора ищем его в базе
-        // Ищем автора в базе по имени
+
         auto author = GetAuthorByName(name);
         if (author) {
             return author;
@@ -361,26 +335,38 @@ namespace ui {
         if (!std::getline(input_, str) || str.empty() || (str != "Y" && str != "y")) {
             throw std::logic_error("The user refused to enter or select the author's name.");
         }
-        // Если "да", то далее будем создавать автора с указанным именем
         return {{.name = name}};
     }
 
+    // Парсинг тегов: нормализация, удаление дубликатов и пустых тегов
+    // Оптимизация: O(n) вместо O(n²) для удаления пробелов, O(n) вместо O(n log n) для удаления дубликатов
     std::vector<std::string> ParseBookTags(std::string str) {
         std::vector<std::string> res;
-        // Убираем задублированные пробелы
-        while (str.find("  ") != std::string::npos){
-            boost::replace_all(str, "  ", " ");
-        }
-        boost::replace_all(str, ", ", ",");
-        boost::replace_all(str, " ,", ",");
-        // Делим строку на теги
+        
+        // Удаляем лишние пробелы в один проход
+        boost::algorithm::trim(str);
+        boost::replace_all(str, "  ", " ");
+        
+        // Делим строку на теги по запятой
         boost::split(res, str, boost::is_any_of(","));
-        // Удаляем пустые теги
-        res.erase(remove(res.begin(), res.end(), ""s), res.end());
-        // Удаляем дубликаты тегов в массиве
-        std::sort(res.begin(), res.end());
-        auto last = std::unique(res.begin(), res.end());
+        
+        // Очищаем теги и удаляем пустые
+        for (auto& tag : res) {
+            boost::algorithm::trim(tag);
+        }
+        res.erase(std::remove_if(res.begin(), res.end(), 
+            [](const std::string& s){ return s.empty(); }), res.end());
+        
+        // Удаляем дубликаты через set для O(n) вместо sort + unique O(n log n)
+        std::unordered_set<std::string> seen;
+        auto last = std::stable_partition(res.begin(), res.end(),
+            [&seen](const std::string& tag){
+                return seen.insert(tag).second;
+            });
         res.erase(last, res.end());
+        
+        // Сортируем для предсказуемого порядка вывода
+        std::sort(res.begin(), res.end());
         return res;
     }
 
@@ -407,7 +393,7 @@ namespace ui {
         return use_cases_.GetAuthorByName(author_name);
     }
 
-    std::optional<info::BookInfo> View::EditBookInterface(const std::string& book_id) const{
+    std::optional<info::BookInfo> View::EditBookInterface(const std::string& book_id) const {
         auto book = use_cases_.GetBook(book_id);
         bool edit_param = false;
         output_ << "Enter new title or empty line to use the current one ("s + book.title + "):"s << std::endl;
@@ -422,12 +408,11 @@ namespace ui {
             book.publication_year = std::stoi(str);
             edit_param = true;
         }
-        std::stringstream ss;
-        // PrintVector
+
         output_ << "Enter tags (current tags: "s;
         PrintTags(output_, book.tags);
         output_ << "):"s << std::endl;
-        if (std::getline(input_, str)/*  && !str.empty() */) {
+        if (std::getline(input_, str)) {
             book.tags = ParseBookTags(str);
             edit_param = true;
         }

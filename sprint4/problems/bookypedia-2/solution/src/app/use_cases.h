@@ -1,4 +1,4 @@
-#pragma onc
+#pragma once
 #include "../domain/author.h"
 #include "../domain/book.h"
 #include "../domain/tag.h"
@@ -68,12 +68,22 @@ public:
     // Сохраняет книгу и все указанные теги
     void AddBook(const std::string& autor_id, const std::string& autor_name
         , const std::string& title, const int publication_year, const std::vector<std::string>& tags) override {
+        if (title.empty()) {
+            throw std::logic_error("Book title cannot be empty");
+        }
+        if (publication_year < 1 || publication_year > 2100) {
+            throw std::logic_error("Publication year must be between 1 and 2100");
+        }
+        
         auto uo_work = uow_factory_->CreateUnitOfWork(TypeOfTransaction::Write);
         domain::AuthorId autor_id_obj;
         if (!autor_id.empty()) {
             autor_id_obj = domain::AuthorId::FromString(autor_id);
         } else {
             // Если ID не указан, создаём нового автора
+            if (autor_name.empty()) {
+                throw std::logic_error("Author name cannot be empty when creating new author");
+            }
             autor_id_obj = domain::AuthorId::New();
             uo_work->Authors().Save({autor_id_obj, autor_name});
         }

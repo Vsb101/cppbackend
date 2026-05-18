@@ -10,7 +10,9 @@ class Menu;
 }
 
 namespace app {
+
 class UseCases;
+
 }
 
 namespace ui {
@@ -76,7 +78,7 @@ private:
     
     // Выбрать книгу из списка (если несколько с таким названием)
     // auto_select_one_book - если true и книга одна, выбрать автоматически
-    std::string SelectBook(info::Books books, bool auto_select_one_book) const;
+    std::string SelectBook(const info::Books& books, bool auto_select_one_book) const;
     
     // Ввести имя автора (с предложением добавить нового)
     std::optional<info::AuthorInfo> EnterAuthor() const;

@@ -10,6 +10,9 @@
 
 #include <sstream>
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include <set>
 
 namespace {
 
@@ -18,99 +21,179 @@ namespace {
 // Хранят данные в памяти, позволяют тестировать бизнес-логику без БД
 // ============================================================================
 
-// Mock репозиторий авторов
+// Mock репозиторий авторов с оптимизированным поиском
+// Используем unordered_map для O(1) поиска по ID и имени
 struct MockAuthorRepository : domain::AuthorRepository {
-    std::vector<domain::Author> saved_authors;
-    std::vector<std::string> deleted_ids;
-    std::vector<info::AuthorInfo> edited_authors;
+    // Храним авторов по ID для быстрого поиска (O(1))
+    std::unordered_map<std::string, domain::Author> authors_by_id_;
+    // Индекс по имени для быстрого поиска (O(1))
+    std::unordered_map<std::string, std::string> name_to_id_;
+    std::vector<std::string> deleted_ids_;
+    std::vector<info::AuthorInfo> edited_authors_;
 
     void Save(const domain::Author& author) override {
-        auto it = std::find_if(saved_authors.begin(), saved_authors.end(),
-            [&author](const domain::Author& a){ return a.GetId() == author.GetId(); });
-        if (it != saved_authors.end()) {
-            *it = author;  // Обновление
+        const std::string id = author.GetId().ToString();
+        const std::string name = author.GetName();
+        
+        auto it = authors_by_id_.find(id);
+        if (it != authors_by_id_.end()) {
+            // Обновление существующего автора
+            // Удаляем старое имя из индекса
+            name_to_id_.erase(it->second.GetName());
+            it->second = author;
         } else {
-            saved_authors.emplace_back(author);  // Добавление
+            // Добавление нового автора
+            authors_by_id_.emplace(id, author);
         }
+        // Обновляем индекс по имени
+        name_to_id_[name] = id;
     }
 
     void Delete(const std::string& author_id) override {
-        deleted_ids.push_back(author_id);
-        saved_authors.erase(
-            std::remove_if(saved_authors.begin(), saved_authors.end(),
-                [&author_id](const domain::Author& a){ return a.GetId().ToString() == author_id; }),
-            saved_authors.end());
+        deleted_ids_.push_back(author_id);
+        
+        auto it = authors_by_id_.find(author_id);
+        if (it != authors_by_id_.end()) {
+            // Удаляем из индекса по имени
+            name_to_id_.erase(it->second.GetName());
+            authors_by_id_.erase(it);
+        }
     }
 
     void Edit(const info::AuthorInfo& author) override {
-        edited_authors.push_back(author);
-        for (auto& a : saved_authors) {
-            if (a.GetId().ToString() == author.id) {
-                break;
-            }
+        edited_authors_.push_back(author);
+        
+        auto it = authors_by_id_.find(author.id);
+        if (it != authors_by_id_.end()) {
+            // Обновляем имя в индексе
+            name_to_id_.erase(it->second.GetName());
+            name_to_id_[author.name] = author.id;
         }
     }
 
     info::Authors GetAuthors() const override {
         info::Authors res;
-        res.reserve(saved_authors.size());
-        for (const auto& author : saved_authors) {
-            res.emplace_back(author.GetId().ToString(), author.GetName());
+        res.reserve(authors_by_id_.size());
+        for (const auto& [id, author] : authors_by_id_) {
+            res.emplace_back(id, author.GetName());
         }
         return res;
     }
 
     std::optional<info::AuthorInfo> GetAuthorByName(const std::string& author_name) const override {
-        auto it = std::find_if(saved_authors.begin(), saved_authors.end(),
-            [&author_name](const domain::Author& a){ return a.GetName() == author_name; });
-        if (it == saved_authors.end()) {
+        // O(1) поиск через индекс
+        auto it = name_to_id_.find(author_name);
+        if (it == name_to_id_.end()) {
             return std::nullopt;
         }
-        return {{.id = it->GetId().ToString(), .name = it->GetName()}};
+        
+        auto author_it = authors_by_id_.find(it->second);
+        if (author_it != authors_by_id_.end()) {
+            return {{.id = it->second, .name = author_name}};
+        }
+        return std::nullopt;
     }
 };
 
-// Mock репозиторий книг
+// Mock репозиторий книг с оптимизированным поиском
+// Используем unordered_map для O(1) поиска по ID и индексы по автору/названию
 struct MockBookRepository : domain::BookRepository {
-    std::vector<domain::Book> saved_books;
-    std::vector<std::string> deleted_book_ids;
-    std::vector<std::string> deleted_books_by_author;
-    std::vector<info::BookInfo> edited_books;
+    // Храним книги по ID для O(1) поиска
+    std::unordered_map<std::string, domain::Book> books_by_id_;
+    // Индекс по автору: author_id -> список book_id
+    std::unordered_map<std::string, std::vector<std::string>> books_by_author_;
+    // Индекс по названию: title -> список book_id
+    std::unordered_map<std::string, std::vector<std::string>> books_by_title_;
+    std::vector<std::string> deleted_book_ids_;
+    std::vector<std::string> deleted_books_by_author_;
+    std::vector<info::BookInfo> edited_books_;
 
     void Save(const domain::Book& book) override {
-        auto it = std::find_if(saved_books.begin(), saved_books.end(),
-            [&book](const domain::Book& b){ return b.GetId() == book.GetId(); });
-        if (it != saved_books.end()) {
-            *it = book;
+        const std::string book_id = book.GetId().ToString();
+        const std::string author_id = book.GetAuthorId().ToString();
+        const std::string title = book.GetTitle();
+        
+        auto it = books_by_id_.find(book_id);
+        if (it != books_by_id_.end()) {
+            // Обновление: удаляем старую книгу из индексов
+            const std::string old_author = it->second.GetAuthorId().ToString();
+            const std::string old_title = it->second.GetTitle();
+            
+            auto& old_author_books = books_by_author_[old_author];
+            old_author_books.erase(
+                std::remove(old_author_books.begin(), old_author_books.end(), book_id),
+                old_author_books.end());
+            
+            auto& old_title_books = books_by_title_[old_title];
+            old_title_books.erase(
+                std::remove(old_title_books.begin(), old_title_books.end(), book_id),
+                old_title_books.end());
+            
+            it->second = book;
         } else {
-            saved_books.emplace_back(book);
+            books_by_id_.emplace(book_id, book);
         }
+        
+        // Обновляем индексы
+        books_by_author_[author_id].push_back(book_id);
+        books_by_title_[title].push_back(book_id);
     }
 
     void DeleteBooks(const std::string& author_id) override {
-        deleted_books_by_author.push_back(author_id);
-        saved_books.erase(
-            std::remove_if(saved_books.begin(), saved_books.end(),
-                [&author_id](const domain::Book& b){ return b.GetAuthorId().ToString() == author_id; }),
-            saved_books.end());
+        deleted_books_by_author_.push_back(author_id);
+        
+        auto it = books_by_author_.find(author_id);
+        if (it == books_by_author_.end()) {
+            return;
+        }
+        
+        for (const auto& book_id : it->second) {
+            auto book_it = books_by_id_.find(book_id);
+            if (book_it != books_by_id_.end()) {
+                // Удаляем из индекса по названию
+                auto& title_books = books_by_title_[book_it->second.GetTitle()];
+                title_books.erase(
+                    std::remove(title_books.begin(), title_books.end(), book_id),
+                    title_books.end());
+                books_by_id_.erase(book_it);
+            }
+        }
+        books_by_author_.erase(it);
     }
 
     void DeleteBook(const std::string& book_id) override {
-        deleted_book_ids.push_back(book_id);
-        saved_books.erase(
-            std::remove_if(saved_books.begin(), saved_books.end(),
-                [&book_id](const domain::Book& b){ return b.GetId().ToString() == book_id; }),
-            saved_books.end());
+        deleted_book_ids_.push_back(book_id);
+        
+        auto it = books_by_id_.find(book_id);
+        if (it == books_by_id_.end()) {
+            return;
+        }
+        
+        // Удаляем из индекса по автору
+        const std::string author_id = it->second.GetAuthorId().ToString();
+        auto& author_books = books_by_author_[author_id];
+        author_books.erase(
+            std::remove(author_books.begin(), author_books.end(), book_id),
+            author_books.end());
+        
+        // Удаляем из индекса по названию
+        const std::string title = it->second.GetTitle();
+        auto& title_books = books_by_title_[title];
+        title_books.erase(
+            std::remove(title_books.begin(), title_books.end(), book_id),
+            title_books.end());
+        
+        books_by_id_.erase(it);
     }
 
     void EditBook(const info::BookInfo& book) override {
-        edited_books.push_back(book);
+        edited_books_.push_back(book);
     }
 
     info::Books GetBooks() const override {
         info::Books res;
-        res.reserve(saved_books.size());
-        for (const auto& book : saved_books) {
+        res.reserve(books_by_id_.size());
+        for (const auto& [id, book] : books_by_id_) {
             res.emplace_back(book.GetTitle(), book.GetPublicationYear());
         }
         std::sort(res.begin(), res.end(), [](const info::BookInfo& left, const info::BookInfo& right){
@@ -120,20 +203,26 @@ struct MockBookRepository : domain::BookRepository {
     }
 
     info::BookInfo GetBook(const std::string& book_id) const override {
-        auto it = std::find_if(saved_books.begin(), saved_books.end(),
-            [&book_id](const domain::Book& b){ return b.GetId().ToString() == book_id; });
-        if (it == saved_books.end()) {
+        auto it = books_by_id_.find(book_id);
+        if (it == books_by_id_.end()) {
             return info::BookInfo{};
         }
-        return {it->GetTitle(), it->GetPublicationYear(), "", {}, book_id};
+        return {it->second.GetTitle(), it->second.GetPublicationYear(), "", {}, book_id};
     }
 
     info::Books GetBooksByAuthor(const std::string& author_id) const override {
         info::Books res;
-        res.reserve(saved_books.size());
-        for (const auto& book : saved_books) {
-            if (book.GetAuthorId().ToString() == author_id) {
-                res.emplace_back(book.GetTitle(), book.GetPublicationYear());
+        
+        auto it = books_by_author_.find(author_id);
+        if (it == books_by_author_.end()) {
+            return res;
+        }
+        
+        res.reserve(it->second.size());
+        for (const auto& book_id : it->second) {
+            auto book_it = books_by_id_.find(book_id);
+            if (book_it != books_by_id_.end()) {
+                res.emplace_back(book_it->second.GetTitle(), book_it->second.GetPublicationYear());
             }
         }
         std::sort(res.begin(), res.end(), [](const info::BookInfo& left, const info::BookInfo& right){
@@ -147,61 +236,60 @@ struct MockBookRepository : domain::BookRepository {
 
     info::Books GetBooksByTitle(const std::string& book_title) const override {
         info::Books res;
-        res.reserve(saved_books.size());
-        for (const auto& book : saved_books) {
-            if (book.GetTitle() == book_title) {
-                res.emplace_back(book.GetTitle(), book.GetPublicationYear());
+        
+        auto it = books_by_title_.find(book_title);
+        if (it == books_by_title_.end()) {
+            return res;
+        }
+        
+        res.reserve(it->second.size());
+        for (const auto& book_id : it->second) {
+            auto book_it = books_by_id_.find(book_id);
+            if (book_it != books_by_id_.end()) {
+                res.emplace_back(book_it->second.GetTitle(), book_it->second.GetPublicationYear());
             }
         }
         return res;
     }
 };
 
-// Mock репозиторий тегов
+// Mock репозиторий тегов с оптимизированным поиском
+// Используем unordered_map + set для O(1) доступа и автоматической сортировки
 struct MockTagRepository : domain::TagRepository {
-    std::vector<domain::Tag> saved_tags;
-    std::vector<std::string> deleted_tags_for_book;
-    std::vector<std::string> deleted_tags_for_author;
+    // Храним теги по book_id: book_id -> set<tag> (set для уникальности и сортировки)
+    std::unordered_map<std::string, std::set<std::string>> tags_by_book_;
+    std::vector<std::string> deleted_tags_for_book_;
+    std::vector<std::string> deleted_tags_for_author_;
 
     void Save(const std::vector<domain::Tag>& tags) override {
         for (const auto& tag : tags) {
-            auto it = std::find_if(saved_tags.begin(), saved_tags.end(),
-                [&tag](const domain::Tag& t){ 
-                    return t.GetBookId() == tag.GetBookId() && t.GetTag() == tag.GetTag(); 
-                });
-            if (it == saved_tags.end()) {
-                saved_tags.emplace_back(tag);
-            }
+            tags_by_book_[tag.GetBookId().ToString()].insert(tag.GetTag());
         }
     }
 
     void Save(const std::vector<std::string>& tags, const std::string& book_id) override {
+        auto& book_tags = tags_by_book_[book_id];
         for (const auto& tag : tags) {
-            saved_tags.emplace_back(domain::BookId::FromString(book_id), tag);
+            book_tags.insert(tag);
         }
     }
 
     void DeleteTagsForAuthor(const std::string& author_id) override {
-        deleted_tags_for_author.push_back(author_id);
+        deleted_tags_for_author_.push_back(author_id);
     }
 
     void DeleteTagsForBook(const std::string& book_id) override {
-        deleted_tags_for_book.push_back(book_id);
-        saved_tags.erase(
-            std::remove_if(saved_tags.begin(), saved_tags.end(),
-                [&book_id](const domain::Tag& t){ return t.GetBookId().ToString() == book_id; }),
-            saved_tags.end());
+        deleted_tags_for_book_.push_back(book_id);
+        tags_by_book_.erase(book_id);
     }
 
     std::vector<std::string> GetTags(const std::string& book_id) const override {
-        std::vector<std::string> res;
-        for (const auto& tag : saved_tags) {
-            if (tag.GetBookId().ToString() == book_id) {
-                res.push_back(tag.GetTag());
-            }
+        auto it = tags_by_book_.find(book_id);
+        if (it == tags_by_book_.end()) {
+            return {};
         }
-        std::sort(res.begin(), res.end());
-        return res;
+        // set уже отсортирован, копируем в vector
+        return {it->second.begin(), it->second.end()};
     }
 };
 
@@ -262,9 +350,9 @@ TEST_CASE("AddAuthor - successful author creation") {
     const auto author_name = "J.K. Rowling";
     use_cases.AddAuthor(author_name);
 
-    REQUIRE(mock_authors.saved_authors.size() == 1);
-    CHECK(mock_authors.saved_authors.at(0).GetName() == author_name);
-    CHECK(mock_authors.saved_authors.at(0).GetId() != domain::AuthorId{});
+    REQUIRE(mock_authors.authors_by_id_.size() == 1);
+    CHECK(mock_authors.authors_by_id_.begin()->second.GetName() == author_name);
+    CHECK(mock_authors.authors_by_id_.begin()->second.GetId() != domain::AuthorId{});
 }
 
 // Тест: добавление нескольких авторов
@@ -280,7 +368,7 @@ TEST_CASE("AddAuthor - multiple authors") {
     use_cases.AddAuthor("Author Two");
     use_cases.AddAuthor("Author Three");
 
-    REQUIRE(mock_authors.saved_authors.size() == 3);
+    REQUIRE(mock_authors.authors_by_id_.size() == 3);
     
     auto authors = use_cases.GetAuthors();
     REQUIRE(authors.size() == 3);
@@ -411,7 +499,7 @@ TEST_CASE("DeleteBook - successful deletion") {
     books = use_cases.GetBooks();
     CHECK(books.empty());
 
-    auto deleted_tags = mock_tags.deleted_tags_for_book;
+    auto deleted_tags = mock_tags.deleted_tags_for_book_;
     REQUIRE(deleted_tags.size() == 1);
     CHECK(deleted_tags[0] == book_id);
 }
@@ -465,9 +553,9 @@ TEST_CASE("DeleteAuthor - cascade deletion") {
 
     use_cases.DeleteAuthor(author->id);
 
-    CHECK(mock_authors.deleted_ids.size() == 1);
-    CHECK(mock_books.deleted_books_by_author.size() == 1);
-    CHECK(mock_tags.deleted_tags_for_author.size() == 1);
+    CHECK(mock_authors.deleted_ids_.size() == 1);
+    CHECK(mock_books.deleted_books_by_author_.size() == 1);
+    CHECK(mock_tags.deleted_tags_for_author_.size() == 1);
     
     books = use_cases.GetBooks();
     CHECK(books.empty());
