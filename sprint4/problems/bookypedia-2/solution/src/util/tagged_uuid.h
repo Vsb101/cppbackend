@@ -1,6 +1,9 @@
 #pragma once
 #include <boost/uuid/nil_generator.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/string_generator.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <string>
 
 #include "tagged.h"
@@ -11,11 +14,20 @@ namespace detail {
 
 using UUIDType = boost::uuids::uuid;
 
-UUIDType NewUUID();
+inline UUIDType NewUUID() {
+    return boost::uuids::random_generator()();
+}
+
 constexpr UUIDType ZeroUUID{{0}};
 
-std::string UUIDToString(const UUIDType& uuid);
-UUIDType UUIDFromString(std::string_view str);
+inline std::string UUIDToString(const UUIDType& uuid) {
+    return boost::uuids::to_string(uuid);
+}
+
+inline UUIDType UUIDFromString(std::string_view str) {
+    boost::uuids::string_generator gen;
+    return gen(str.begin(), str.end());
+}
 
 }  // namespace detail
 

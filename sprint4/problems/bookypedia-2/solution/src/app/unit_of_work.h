@@ -1,9 +1,7 @@
 #pragma once
 
 #include <memory>
-#include "../domain/author_fwd.h"
-#include "../domain/book_fwd.h"
-#include "../domain/tag_fwd.h"
+#include "../domain/fwd.h"
 
 namespace app {
 

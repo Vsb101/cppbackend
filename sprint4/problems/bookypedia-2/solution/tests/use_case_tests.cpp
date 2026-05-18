@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
 
-#include "../src/app/use_cases_impl.h"
+#include "../src/app/use_cases.h"
 #include "../src/domain/author.h"
 #include "../src/domain/book.h"
 #include "../src/postgres/postgres.h"
@@ -15,6 +15,12 @@ struct MockAuthorRepository : domain::AuthorRepository {
         saved_authors.emplace_back(author);
     }
 
+    void Delete(const std::string& /*author_id*/) override {
+    }
+
+    void Edit(const info::AuthorInfo& /*author*/) override {
+    }
+
     info::Authors GetAuthors() const {
         info::Authors res;
         res.reserve(saved_authors.size());
@@ -25,14 +31,11 @@ struct MockAuthorRepository : domain::AuthorRepository {
     }
 
     std::optional<info::AuthorInfo> GetAuthorByName(const std::string& author_name) const {
-        // saved_authors.fi
-        // const auto it = actions_.find(cmd); it != actions_.cend()
         auto it = std::find_if(saved_authors.begin(), saved_authors.end()
         , [author_name](const domain::Author& author){return author.GetName() == author_name;});
         if (it == saved_authors.end()) {
             return std::nullopt;
         }
-        // it->GetId().ToString()
         return {{.id = it->GetId().ToString(), .name = it->GetName()}};
     }
 };
@@ -43,6 +46,16 @@ struct MockBookRepository : domain::BookRepository {
     void Save(const domain::Book& book) override {
         saved_books.emplace_back(book);
     }
+
+    void DeleteBooks(const std::string& /*author_id*/) override {
+    }
+
+    void DeleteBook(const std::string& /*book_id*/) override {
+    }
+
+    void EditBook(const info::BookInfo& /*book*/) override {
+    }
+
     info::Books GetBooks() const override {
         info::Books res;
         res.reserve(saved_books.size());
@@ -53,6 +66,10 @@ struct MockBookRepository : domain::BookRepository {
             return left.title < right.title;
         });
         return res;
+    }
+
+    info::BookInfo GetBook(const std::string& /*book_id*/) const override {
+        return {};
     }
 
     info::Books GetBooksByAuthor(const std::string& author_id) const override {
@@ -69,6 +86,17 @@ struct MockBookRepository : domain::BookRepository {
             }
             return left.title < right.title;
         });
+        return res;
+    }
+
+    info::Books GetBooksByTitle(const std::string& book_title) const override {
+        info::Books res;
+        res.reserve(saved_books.size());
+        for (const auto& book : saved_books) {
+            if (book.GetTitle() == book_title) {
+                res.emplace_back(book.GetTitle(), book.GetPublicationYear());
+            }
+        }
         return res;
     }
 };

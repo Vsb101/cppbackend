@@ -1,6 +1,4 @@
 #pragma once
-// #include <iosfwd>
-// #include <optional>
 #include <string>
 #include <vector>
 #include <iostream>
@@ -19,9 +17,7 @@ struct AuthorInfo {
     std::string name;
 };
 
-
 struct TagInfo {
-    // std::string author_id;
     std::string tag;
 };
 
@@ -38,13 +34,14 @@ struct BookInfo {
 
 using Books = std::vector<BookInfo>;
 
+inline std::ostream& operator<<(std::ostream& out, const AuthorInfo& author) {
+    out << author.name;
+    return out;
+}
 
+inline std::ostream& operator<<(std::ostream& out, const BookInfo& book) {
+    out << book.title << ", " << book.publication_year;
+    return out;
+}
 
-// }  // namespace detail
-// namespace detail {
-
-std::ostream& operator<<(std::ostream& out, const AuthorInfo& author);
-
-std::ostream& operator<<(std::ostream& out, const BookInfo& book);
-
-}  // namespace detail
+}  // namespace info
