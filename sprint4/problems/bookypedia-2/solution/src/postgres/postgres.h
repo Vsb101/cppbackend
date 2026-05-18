@@ -14,11 +14,15 @@ namespace postgres {
 // Реализация репозитория авторов для PostgreSQL
 class AuthorRepositoryImpl : public domain::AuthorRepository {
 public:
-    // work_ - транзакция для записи
-    // read_transaction_ - транзакция для чтения
-    explicit AuthorRepositoryImpl(pqxx::work& work, pqxx::read_transaction& read_transaction)
-        : work_{work}
-        , read_transaction_{read_transaction} {
+    // Конструктор для операций записи
+    explicit AuthorRepositoryImpl(pqxx::work& work)
+        : work_{&work}
+        , read_transaction_{nullptr} {
+    }
+    // Конструктор для операций чтения
+    explicit AuthorRepositoryImpl(pqxx::read_transaction& read_transaction)
+        : work_{nullptr}
+        , read_transaction_{&read_transaction} {
     }
 
     void Save(const domain::Author& author) override;
@@ -28,16 +32,22 @@ public:
     std::optional<info::AuthorInfo> GetAuthorByName(const std::string& author_name) const override;
 
 private:
-    pqxx::work& work_;
-    pqxx::read_transaction& read_transaction_;
+    pqxx::work* work_;
+    pqxx::read_transaction* read_transaction_;
 };
 
 // Реализация репозитория книг для PostgreSQL
 class BookRepositoryImpl : public domain::BookRepository {
 public:
-    explicit BookRepositoryImpl(pqxx::work& work, pqxx::read_transaction& read_transaction)
-        : work_{work}
-        , read_transaction_{read_transaction} {
+    // Конструктор для операций записи
+    explicit BookRepositoryImpl(pqxx::work& work)
+        : work_{&work}
+        , read_transaction_{nullptr} {
+    }
+    // Конструктор для операций чтения
+    explicit BookRepositoryImpl(pqxx::read_transaction& read_transaction)
+        : work_{nullptr}
+        , read_transaction_{&read_transaction} {
     }
 
     void Save(const domain::Book& book) override;
@@ -50,26 +60,35 @@ public:
     info::Books GetBooksByTitle(const std::string& book_title) const override;
 
 private:
-    pqxx::work& work_;
-    pqxx::read_transaction& read_transaction_;
+    pqxx::work* work_;
+    pqxx::read_transaction* read_transaction_;
 };
 
 // Реализация репозитория тегов для PostgreSQL
 class TagRepositoryImpl : public domain::TagRepository {
 public:
-    explicit TagRepositoryImpl(pqxx::work& work, pqxx::read_transaction& read_transaction);
+    // Конструктор для операций записи
+    explicit TagRepositoryImpl(pqxx::work& work)
+        : work_{&work}
+        , read_transaction_{nullptr} {
+    }
+    // Конструктор для операций чтения
+    explicit TagRepositoryImpl(pqxx::read_transaction& read_transaction)
+        : work_{nullptr}
+        , read_transaction_{&read_transaction} {
+    }
     
     void Save(const std::vector<domain::Tag>& tags) override;
-    void Save(const std::vector<std::string>& tags, const std::string& book_id);
+    void Save(const std::vector<std::string>& tags, const std::string& book_id) override;
     
     void DeleteTagsForAuthor(const std::string& author_id) override;
-    void DeleteTagsForBook(const std::string& book_id);
+    void DeleteTagsForBook(const std::string& book_id) override;
     
     std::vector<std::string> GetTags(const std::string& book_id) const override;
 
 private:
-    pqxx::work& work_;
-    pqxx::read_transaction& read_transaction_;
+    pqxx::work* work_;
+    pqxx::read_transaction* read_transaction_;
 };
 
 // Реализация UnitOfWork для PostgreSQL
