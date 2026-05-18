@@ -4,11 +4,12 @@ cmake_minimum_required(VERSION 3.11)
 project(Hello CXX)
 # Исходый код будет компилироваться с поддержкой стандарта С++ 20
 set(CMAKE_CXX_STANDARD 20)
-
+set(CONAN_DISABLE_CHECK_COMPILER True)
 # Подключаем сгенерированный скрипт conanbuildinfo.cmake, созданный Conan
 include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
 # Выполняем макрос из conanbuildinfo.cmake, который настроит СMake на работу с библиотеками, установленными Conan
 conan_basic_setup()
+
 
 find_package(Boost REQUIRED)
 if(Boost_FOUND)

@@ -1,9 +1,0 @@
-Ошибка в тесте?
-grep -A 3 "server_domain = " ~/dev/cppbackend/cpp-backend-tests-practicum/tests/test_s04_leave_game.py | head -10
-        server_domain = name
-    else:
-        networks = inspector.inspect_container(container.id)['NetworkSettings']['Networks']
-        server_domain = list(networks.values())[0].get('IPAddress', '')
-    server = Server(server_domain, '8080')
-    server.container = container
-    yield server

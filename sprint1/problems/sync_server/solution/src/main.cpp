@@ -10,31 +10,33 @@ namespace net = boost::asio;
 using tcp = net::ip::tcp;
 using namespace std::literals;
 namespace beast = boost::beast;
+using beast::string_view;
 namespace http = beast::http;
+using beast::string_view;
 
 http::response<http::string_body> MakeResponse(http::request<http::string_body>&& request, const std::string& target) {
     http::response<http::string_body> response;
     
     if (request.method() == http::verb::get) {
         response.result(http::status::ok);
-        response.set(http::field::content_type, "text/html"sv);
+        response.set(http::field::content_type, string_view("text/html"));
         std::string body = "Hello, " + target;
         response.body() = body;
         response.content_length(body.size());
     } else if (request.method() == http::verb::head) {
         response.result(http::status::ok);
-        response.set(http::field::content_type, "text/html"sv);
+        response.set(http::field::content_type, string_view("text/html"));
         std::string body = "Hello, " + target;
         response.content_length(body.size());
     } else {
         response.result(http::status::method_not_allowed);
-        response.set(http::field::content_type, "text/html"sv);
-        response.set(http::field::allow, "GET, HEAD"sv);
+        response.set(http::field::content_type, string_view("text/html"));
+        response.set(http::field::allow, string_view("GET, HEAD"));
         response.body() = "Invalid method.";
         response.content_length(14);
     }
     
-    response.set(http::field::server, "cpp-backend-server"sv);
+    response.set(http::field::server, string_view("cpp-backend-server"));
     
     
     return response;
@@ -54,7 +56,7 @@ int main() {
     net::io_context ioc;
     tcp::acceptor acceptor(ioc, {address, port});
     
-    std::cout << "Server has started..."sv << std::endl;
+    std::cout << string_view("Server has started...") << std::endl;
     
     while (true) {
         tcp::socket socket(ioc);
