@@ -13,36 +13,14 @@ using namespace std::literals;
 // ============================================================================
 
 void Application::InitDatabase() {
-    try {
-        PoolConnectionHolder holder{*db_pool_};
-        pqxx::work tx{holder.Get()};
-        
-        // Создаем таблицу, если она отсутствует
-        tx.exec(R"(
-            CREATE TABLE IF NOT EXISTS retired_players (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                score INT NOT NULL,
-                play_time DOUBLE PRECISION NOT NULL
-            );
-        )");
-        
-        // Создаем составной индекс под строгие условия сортировки из ТЗ
-        tx.exec(R"(
-            CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name 
-            ON retired_players (score DESC, play_time ASC, name ASC);
-        )");
-        
-        tx.commit();
-    } catch (const std::exception& e) {
-        // Замените на вашу систему логирования, если требуется
-        throw std::runtime_error("Database initialization failed: "s + e.what());
-    }
+    // Удалено — теперь инициализация происходит в GetOrCreateDbPool()
 }
 
 void Application::SaveRetiredDogRecord(const std::string& name, int score, double play_time) {
     try {
-        PoolConnectionHolder holder{*db_pool_};
+        auto pool = GetOrCreateDbPool();
+        if (!pool) return;
+        PoolConnectionHolder holder{*pool};
         pqxx::work tx{holder.Get()};
         
         tx.exec_params(
@@ -59,7 +37,9 @@ void Application::SaveRetiredDogRecord(const std::string& name, int score, doubl
 std::vector<RecordItem> Application::GetRecords(int start, int max_items) const {
     std::vector<RecordItem> records;
     try {
-        PoolConnectionHolder holder{*db_pool_};
+        auto pool = GetOrCreateDbPool();
+        if (!pool) return records;
+        PoolConnectionHolder holder{*pool};
         pqxx::read_transaction tx{holder.Get()};
         
         // Запрос использует оптимизированный индекс
@@ -78,7 +58,7 @@ std::vector<RecordItem> Application::GetRecords(int start, int max_items) const 
             });
         }
     } catch (const std::exception& e) {
-        // Возвращаем пустой вектор или обрабатываем ошибку в зависимости от стратегии
+        // Возвращаем пустой вектор при ошибке БД
     }
     return records;
 }

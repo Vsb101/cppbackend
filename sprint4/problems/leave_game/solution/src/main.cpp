@@ -94,7 +94,12 @@ int main(int argc, const char* argv[]) {
             const char* db_port = std::getenv("POSTGRES_PORT") ? std::getenv("POSTGRES_PORT") : "5432";
             const char* db_name = std::getenv("POSTGRES_DB") ? std::getenv("POSTGRES_DB") : "postgres";
             
-            db_url = "postgresql://"s + db_user + ":"s + db_pwd + "@"s + db_host + ":"s + db_port + "/"s + db_name;
+            // Формируем URL, учитывая пустой пароль
+            if (std::string(db_pwd).empty()) {
+                db_url = "postgresql://"s + db_user + "@"s + db_host + ":"s + db_port + "/"s + db_name;
+            } else {
+                db_url = "postgresql://"s + db_user + ":"s + db_pwd + "@"s + db_host + ":"s + db_port + "/"s + db_name;
+            }
         }
 
         auto config = json_loader::LoadGame(args.config_file);

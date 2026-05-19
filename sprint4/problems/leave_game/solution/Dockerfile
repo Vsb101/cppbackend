@@ -41,5 +41,8 @@ COPY --from=build /app/build/game_server /app/
 COPY ./data /app/data
 COPY ./static /app/static
 
+# Экспортируем порт сервера
+EXPOSE 8080
+
 # Запускаем игровой сервер
 ENTRYPOINT ["/app/game_server", "--config-file", "/app/data/config.json", "--www-root", "/app/static"] 

@@ -76,13 +76,9 @@ public:
     , extra_data_(std::move(extra_data))
     , is_tick_auto_(is_tick_auto)
     , randomize_spawn_(randomize_spawn)
-    , db_pool_(std::make_shared<ConnectionPool>(4, db_url.empty() ? "postgresql://localhost" : db_url)) { 
-    
-        // Инициализируем СУБД только если нам передали реальный URL
-        // Это защитит старые тесты от падения при попытке подключиться к пустой строке
-        if (!db_url.empty()) {
-            InitDatabase();
-        }
+    , db_url_(db_url.empty() ? "postgresql://localhost" : db_url)
+    , db_pool_(nullptr) { 
+        // Отложенная инициализация БД — создадим пул при первом запросе
     }
 
     std::pair<Token, util::Tagged<size_t, Player>> JoinGame(const std::string& player_name, const model::Map::Id& map_id);
@@ -136,10 +132,40 @@ private:
     bool is_tick_auto_;
     bool randomize_spawn_;
     
-    std::shared_ptr<ConnectionPool> db_pool_; // Пул соединений с БД
+    mutable std::shared_ptr<ConnectionPool> db_pool_; // Пул соединений с БД (ленивая инициализация)
+    std::string db_url_;  // URL базы данных для ленивой инициализации
 
     mutable std::mutex mutex_; 
     std::unique_ptr<infra::StateListener> listener_;
+    
+    // Ленивая инициализация пула соединений
+    std::shared_ptr<ConnectionPool> GetOrCreateDbPool() const {
+        std::lock_guard lock(mutex_);
+        if (!db_pool_) {
+            db_pool_ = std::make_shared<ConnectionPool>(4, db_url_);
+            // Инициализируем схему БД при первом подключении
+            try {
+                PoolConnectionHolder holder{*db_pool_};
+                pqxx::work tx{holder.Get()};
+                tx.exec(R"(
+                    CREATE TABLE IF NOT EXISTS retired_players (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(100) NOT NULL,
+                        score INT NOT NULL,
+                        play_time DOUBLE PRECISION NOT NULL
+                    );
+                )");
+                tx.exec(R"(
+                    CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name 
+                    ON retired_players (score DESC, play_time ASC, name ASC);
+                )");
+                tx.commit();
+            } catch (const std::exception& e) {
+                // Логируем, но не бросаем — игра будет работать без БД
+            }
+        }
+        return db_pool_;
+    }
 };
 
 } // namespace app
