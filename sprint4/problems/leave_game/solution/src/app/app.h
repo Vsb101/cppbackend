@@ -14,6 +14,7 @@
 #include "player.h"
 #include "extra_data.h"
 #include "../infra/state_listener.h"
+#include "../other/sql_queries.h"
 
 namespace app {
 
@@ -148,25 +149,14 @@ private:
                 // Инициализируем схему БД при первом подключении
                 PoolConnectionHolder holder{*db_pool_};
                 pqxx::work tx{holder.Get()};
-                tx.exec(R"(
-                    CREATE TABLE IF NOT EXISTS retired_players (
-                        id SERIAL PRIMARY KEY,
-                        name VARCHAR(100) NOT NULL,
-                        score INT NOT NULL,
-                        play_time DOUBLE PRECISION NOT NULL
-                    );
-                )");
-                tx.exec(R"(
-                    CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name 
-                    ON retired_players (score DESC, play_time ASC, name ASC);
-                )");
+                tx.exec(db::queries::CREATE_RETIRE_TABLE);
+                tx.exec(db::queries::CREATE_RETIRE_INDEX);
                 tx.commit();
             } catch (const std::exception& e) {
                 // Логируем, но не бросаем — игра будет работать без БД
                 // При ошибке БД сбрасываем пул, чтобы при следующем запросе попробовать заново
                 db_pool_.reset();
                 // Логируем ошибку для отладки
-                // В продакшене можно использовать вашу систему логирования
             }
         }
         return db_pool_;
