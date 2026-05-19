@@ -145,6 +145,8 @@ private:
             db_pool_ = std::make_shared<ConnectionPool>(4, db_url_);
             // Инициализируем схему БД при первом подключении
             try {
+                db_pool_ = std::make_shared<ConnectionPool>(4, db_url_);
+                // Инициализируем схему БД при первом подключении
                 PoolConnectionHolder holder{*db_pool_};
                 pqxx::work tx{holder.Get()};
                 tx.exec(R"(
@@ -162,6 +164,10 @@ private:
                 tx.commit();
             } catch (const std::exception& e) {
                 // Логируем, но не бросаем — игра будет работать без БД
+                // При ошибке БД сбрасываем пул, чтобы при следующем запросе попробовать заново
+                db_pool_.reset();
+                // Логируем ошибку для отладки
+                // В продакшене можно использовать вашу систему логирования
             }
         }
         return db_pool_;
