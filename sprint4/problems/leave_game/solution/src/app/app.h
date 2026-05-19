@@ -135,14 +135,13 @@ private:
     mutable std::shared_ptr<ConnectionPool> db_pool_; // Пул соединений с БД (ленивая инициализация)
     std::string db_url_;  // URL базы данных для ленивой инициализации
 
-    mutable std::mutex mutex_; 
+    mutable std::recursive_mutex mutex_; 
     std::unique_ptr<infra::StateListener> listener_;
     
     // Ленивая инициализация пула соединений
     std::shared_ptr<ConnectionPool> GetOrCreateDbPool() const {
-        std::lock_guard lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!db_pool_) {
-            db_pool_ = std::make_shared<ConnectionPool>(4, db_url_);
             // Инициализируем схему БД при первом подключении
             try {
                 db_pool_ = std::make_shared<ConnectionPool>(4, db_url_);

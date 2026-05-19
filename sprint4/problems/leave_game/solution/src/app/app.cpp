@@ -71,7 +71,7 @@ std::pair<Token, util::Tagged<size_t, Player>> Application::JoinGame(
     const std::string& player_name, 
     const model::Map::Id& map_id) {
     
-    std::lock_guard lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     
     auto session = game_.FindOrCreateSession(map_id);
     if (!session) {
@@ -91,7 +91,7 @@ std::pair<Token, util::Tagged<size_t, Player>> Application::JoinGame(
 }
 
 std::vector<std::shared_ptr<Player>> Application::GetPlayersInSession(const Token& token) const {
-    std::lock_guard lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto player = tokens_.FindPlayerByToken(token);
     if (!player) return {};
 
@@ -110,12 +110,12 @@ std::vector<std::shared_ptr<Player>> Application::GetPlayersInSession(const Toke
 }
 
 std::shared_ptr<Player> Application::FindPlayerByToken(const Token& token) const {
-    std::lock_guard lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     return tokens_.FindPlayerByToken(token);
 }
 
 void Application::MovePlayer(const Token& token, std::string_view move_cmd) {
-    std::lock_guard lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     auto player = tokens_.FindPlayerByToken(token);
     if (!player) return;
 
@@ -153,7 +153,7 @@ void Application::Tick(std::chrono::milliseconds delta) {
     double retirement_time_limit = game_.GetDogRetirementTime();
     
     {
-        std::lock_guard lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         for (auto& [id, session] : game_.GetSessions()) {
             if (!session) continue;
             
@@ -200,12 +200,12 @@ void Application::NotifyShutdown() {
 }
 
 void Application::RestorePlayerToken(const Token& token, std::shared_ptr<Player> player) {
-    std::lock_guard lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     tokens_.RestorePlayer(token, player);
 }
 
 void Application::ClearAllPlayers() {
-    std::lock_guard lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     tokens_.ClearAllTokens();
     players_.clear();
 }
