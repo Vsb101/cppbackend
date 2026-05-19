@@ -3,18 +3,14 @@
 #include <stdexcept>
 #include <algorithm>
 #include "../infra/state_listener.h"
+#include "../other/sql_queries.h"
 
 namespace app {
 
 using namespace std::literals;
 
-// ============================================================================
-// Инициализация базы данных и вспомогательные методы персистентности
-// ============================================================================
-
-void Application::InitDatabase() {
-    // Удалено — теперь инициализация происходит в GetOrCreateDbPool()
-}
+// Ленивая инициализация: схема создаётся при первом запросе
+void Application::InitDatabase() {}
 
 void Application::SaveRetiredDogRecord(const std::string& name, int score, double play_time) {
     try {
@@ -24,13 +20,12 @@ void Application::SaveRetiredDogRecord(const std::string& name, int score, doubl
         pqxx::work tx{holder.Get()};
         
         tx.exec_params(
-            "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
+            db::queries::INSERT_RETIRE_RECORD,
             name, score, play_time
         );
-        
         tx.commit();
-    } catch (const std::exception& e) {
-        // Ошибка записи в БД не должна приводить к крашу игрового тика
+    } catch (const std::exception&) {
+        // Graceful degradation: рекорд теряется, но сервер не падает
     }
 }
 
@@ -42,10 +37,8 @@ std::vector<RecordItem> Application::GetRecords(int start, int max_items) const 
         PoolConnectionHolder holder{*pool};
         pqxx::read_transaction tx{holder.Get()};
         
-        // Запрос использует оптимизированный индекс
         auto rows = tx.exec_params(
-            "SELECT name, score, play_time FROM retired_players "
-            "ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
+            db::queries::SELECT_RETIRE_RECORDS,
             max_items, start
         );
         
@@ -57,15 +50,11 @@ std::vector<RecordItem> Application::GetRecords(int start, int max_items) const 
                 row["play_time"].as<double>()
             });
         }
-    } catch (const std::exception& e) {
-        // Возвращаем пустой вектор при ошибке БД
+    } catch (const std::exception&) {
+        // БД недоступна — возвращаем пустой список
     }
     return records;
 }
-
-// ============================================================================
-// Игровая логика
-// ============================================================================
 
 std::pair<Token, util::Tagged<size_t, Player>> Application::JoinGame(
     const std::string& player_name, 
@@ -80,8 +69,7 @@ std::pair<Token, util::Tagged<size_t, Player>> Application::JoinGame(
 
     auto dog = session->CreateDog(player_name, randomize_spawn_);
     
-    using PlayerId = util::Tagged<size_t, Player>;
-    auto player = std::make_shared<Player>(PlayerId{next_player_id_++}, player_name);
+    auto player = std::make_shared<Player>(util::Tagged<size_t, Player>{next_player_id_++}, player_name);
     
     player->SetGameSession(session);
     player->SetDog(dog);
@@ -128,7 +116,7 @@ void Application::MovePlayer(const Token& token, std::string_view move_cmd) {
         speed_val = game_.GetDefaultDogSpeed();
     }
     
-    // При любой явной команде движения сбрасываем счетчик бездействия пса
+    // Любая команда сбрасывает таймер бездействия (включая "")
     dog->ResetIdleTime();
 
     if (move_cmd == "L"sv) { 
@@ -157,23 +145,21 @@ void Application::Tick(std::chrono::milliseconds delta) {
         for (auto& [id, session] : game_.GetSessions()) {
             if (!session) continue;
             
-            // Задаем callback для обработки удаления собаки сессией
+            // Callback вызывается под lock session->mutex_ (внутри Update).
+            // SaveRetiredDogRecord → GetOrCreateDbPool → lock(mutex_).
+            // Поэтому mutex_ — recursive, иначе deadlock.
             session->Update(dt_seconds, retirement_time_limit, [this](const std::shared_ptr<model::Dog>& retired_dog) {
                 if (!retired_dog) return;
 
-                // 1. Сохраняем заслуги в PostgreSQL
                 SaveRetiredDogRecord(retired_dog->GetName(), retired_dog->GetScore(), retired_dog->GetPlayTime());
 
-                // 2. Находим соответствующего игрока и зачищаем следы его активности
                 auto dog_id = retired_dog->GetId();
                 auto p_it = std::find_if(players_.begin(), players_.end(), [&dog_id](const auto& player) {
                     return player->GetDog() && player->GetDog()->GetId() == dog_id;
                 });
 
                 if (p_it != players_.end()) {
-                    // Аннулируем токен
-                    tokens_.RemovePlayer(*p_it); // Убедитесь, что метод умеет удалять по shared_ptr/Token
-                    // Удаляем из списка активных игроков приложения
+                    tokens_.RemovePlayer(*p_it);
                     players_.erase(p_it);
                 }
             });

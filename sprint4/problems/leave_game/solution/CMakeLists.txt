@@ -36,7 +36,6 @@ set(APP_SOURCES
     src/infra/http_server.cpp
     src/infra/json_loader.cpp
     src/infra/state_serializer.cpp
-    src/logger/logger.cpp
     src/logger/logging_handler.cpp
     src/model/collision_detector.cpp
     src/model/game.cpp
